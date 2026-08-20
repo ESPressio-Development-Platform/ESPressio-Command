@@ -9,7 +9,7 @@ include(FetchContent)
 FetchContent_Declare(
     ESPressioObservable
     GIT_REPOSITORY https://github.com/Flowduino/ESPressio-Observable.git
-    GIT_TAG 75fa06e5d56cf8f2673f441ae49e35e2017011cd
+    GIT_TAG 3.0.1
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(ESPressioObservable)
