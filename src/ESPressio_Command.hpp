@@ -239,6 +239,8 @@ public:
     static CommandRegistry& GetInstance() { static CommandRegistry instance; return instance; }
     CommandNode& Command(std::string name) { return root_.Command(std::move(name)); }
     CommandRegistrationHandle RegisterCommand(std::string name) {
+        if (name.empty()) return {};
+        for (const auto& child : root_.children_) if (child->Matches(name)) return {};
         root_.Command(name);
         return CommandRegistrationHandle(this, {std::move(name)});
     }

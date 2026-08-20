@@ -50,7 +50,9 @@ int main() {
 
     {
         auto registration = registry.RegisterCommand("temporary");
-        registration.Active();
+        assert(registration.Active());
+        auto duplicate = registry.RegisterCommand("temporary");
+        assert(!duplicate.Active());
         registration.Reset();
         assert(!registry.Invoke("temporary").success);
     }
