@@ -1,0 +1,50 @@
+name: Command 0.2.0 Lifetime Support
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/command-020-lifetime.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch Command registration lifetime support
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          p=Path('src/ESPressio_Command.hpp')
+          s=p.read_text()
+          s=s.replace('class CommandParameter;\n', 'class CommandParameter;\nclass CommandRegistry;\nclass CommandRegistrationHandle;\n', 1)
+          marker='    CommandParameter& Parameter(std::string name, ParameterKind kind = ParameterKind::String) { parameters_.emplace_back(std::move(name), kind); return parameters_.back(); }'
+          replacement=marker+'\n    bool RemoveCommand(const std::string& name) { auto it = std::find_if(children_.begin(), children_.end(), [&](const auto& child){ return child->Matches(name); }); if (it == children_.end()) return false; children_.erase(it); return true; }'
+          s=s.replace(marker,replacement,1)
+          marker='class CommandRegistry {\npublic:'
+          handle='''class CommandRegistrationHandle {\npublic:\n    CommandRegistrationHandle() = default;\n    CommandRegistrationHandle(CommandRegistry* registry, std::vector<std::string> path) : registry_(registry), path_(std::move(path)) {}\n    CommandRegistrationHandle(const CommandRegistrationHandle&) = delete;\n    CommandRegistrationHandle& operator=(const CommandRegistrationHandle&) = delete;\n    CommandRegistrationHandle(CommandRegistrationHandle&& other) noexcept : registry_(other.registry_), path_(std::move(other.path_)) { other.registry_ = nullptr; }\n    CommandRegistrationHandle& operator=(CommandRegistrationHandle&& other) noexcept { if (this != &other) { Reset(); registry_ = other.registry_; path_ = std::move(other.path_); other.registry_ = nullptr; } return *this; }\n    ~CommandRegistrationHandle() { Reset(); }\n    void Reset();\n    bool Active() const noexcept { return registry_ != nullptr; }\n    const std::vector<std::string>& Path() const noexcept { return path_; }\nprivate:\n    CommandRegistry* registry_{nullptr};\n    std::vector<std::string> path_;\n};\n\n'''
+          s=s.replace(marker,handle+marker,1)
+          marker='    CommandNode& Command(std::string name) { return root_.Command(std::move(name)); }'
+          replacement=marker+'''\n    CommandRegistrationHandle RegisterCommand(std::string name) {\n        root_.Command(name);\n        return CommandRegistrationHandle(this, {std::move(name)});\n    }\n    bool UnregisterCommand(const std::vector<std::string>& path) {\n        if (path.empty()) return false;\n        CommandNode* node = &root_;\n        for (std::size_t i = 0; i + 1 < path.size(); ++i) {\n            CommandNode* next = nullptr;\n            for (auto& child : node->children_) if (child->Matches(path[i])) { next = child.get(); break; }\n            if (!next) return false;\n            node = next;\n        }\n        return node->RemoveCommand(path.back());\n    }'''
+          s=s.replace(marker,replacement,1)
+          s=s.replace('\n} // namespace ESPressio::Command', '\ninline void CommandRegistrationHandle::Reset() { if (registry_ != nullptr) { registry_->UnregisterCommand(path_); registry_ = nullptr; path_.clear(); } }\n\n} // namespace ESPressio::Command',1)
+          p.write_text(s)
+
+          t=Path('tests/test_command.cpp')
+          ts=t.read_text()
+          ts=ts.replace('    return 0;','''    {\n        auto registration = registry.RegisterCommand("temporary");\n        registration.Active();\n        registration.Reset();\n        assert(!registry.Invoke("temporary").success);\n    }\n\n    {\n        auto registration = registry.RegisterCommand("scoped");\n        registration.Active();\n    }\n    assert(!registry.Invoke("scoped").success);\n\n    return 0;''',1)
+          t.write_text(ts)
+
+          j=Path('library.json'); data=json.loads(j.read_text()); data['version']='0.2.0'; j.write_text(json.dumps(data,indent=4)+'\n')
+          lp=Path('library.properties'); txt=lp.read_text().replace('version=0.1.0','version=0.2.0'); lp.write_text(txt)
+          cm=Path('component.mk'); txt=cm.read_text().replace('VERSION_MINOR=1','VERSION_MINOR=2').replace('VERSION_STRING=\\"0.1.0\\"','VERSION_STRING=\\"0.2.0\\"'); cm.write_text(txt)
+          ch=Path('CHANGELOG.md'); txt=ch.read_text(); ch.write_text('## 0.2.0\n\n- Added ownership-safe `CommandRegistrationHandle` for scoped command registration.\n- Added `CommandRegistry::RegisterCommand()` and `UnregisterCommand()` for dynamic integrations.\n- Added command-subtree removal support and lifecycle tests.\n\n'+txt)
+          r=Path('README.md'); txt=r.read_text().replace('**0.1.0 (pre-release)**','**0.2.0 (pre-release)**').replace('flowduino/ESPressio-Command@^0.1.0','flowduino/ESPressio-Command@^0.2.0'); r.write_text(txt)
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- src/ESPressio_Command.hpp tests/test_command.cpp library.json library.properties component.mk CHANGELOG.md README.md
+          git commit -m "feat: add command registration lifetime support"
+          git push origin HEAD:main
