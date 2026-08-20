@@ -1,0 +1,21 @@
+{
+    "name": "ESPressio-Command",
+    "description": "Transport-neutral typed command definition, parsing, routing and invocation framework for ESP32 and C++17",
+    "keywords": "command,commands,cli,console,parser,router,dispatcher,espressio",
+    "authors": {
+        "name": "Flowduino",
+        "maintainer": true,
+        "url": "https://flowduino.com"
+    },
+    "build": {
+        "flags": ["-std=gnu++17", "-DESPRESSIO_COMMAND"]
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Flowduino/ESPressio-Command.git"
+    },
+    "version": "0.1.0",
+    "license": "Apache-2.0",
+    "frameworks": "*",
+    "platforms": "*"
+}
