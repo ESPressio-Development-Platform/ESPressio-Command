@@ -11,7 +11,7 @@ callbacks without coupling application logic to a transport.
 
 ## Latest Stable Version
 
-ESPressio Command is currently **0.1.0 (pre-release)**.
+ESPressio Command is currently **0.2.0 (pre-release)**.
 
 This is the initial pre-release of the library. For release-by-release history,
 see [CHANGELOG.md](CHANGELOG.md).
@@ -117,7 +117,7 @@ You can add the published library to a PlatformIO project with:
 
 ```ini
 lib_deps =
-    flowduino/ESPressio-Command@^0.1.0
+    flowduino/ESPressio-Command@^0.2.0
 ```
 
 Until a release/tag is published, or when deliberately consuming the latest

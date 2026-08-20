@@ -1,3 +1,9 @@
+## 0.2.0
+
+- Added ownership-safe `CommandRegistrationHandle` for scoped command registration.
+- Added `CommandRegistry::RegisterCommand()` and `UnregisterCommand()` for dynamic integrations.
+- Added command-subtree removal support and lifecycle tests.
+
 # Changelog
 
 All notable changes to ESPressio Command are documented here.

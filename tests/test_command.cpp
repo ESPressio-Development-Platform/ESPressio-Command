@@ -48,5 +48,18 @@ int main() {
     line.Feed("gpio write 8 low\n");
     assert(pin == 8 && !state && lineResult == "written");
 
+    {
+        auto registration = registry.RegisterCommand("temporary");
+        registration.Active();
+        registration.Reset();
+        assert(!registry.Invoke("temporary").success);
+    }
+
+    {
+        auto registration = registry.RegisterCommand("scoped");
+        registration.Active();
+    }
+    assert(!registry.Invoke("scoped").success);
+
     return 0;
 }

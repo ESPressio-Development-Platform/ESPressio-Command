@@ -26,6 +26,8 @@ struct CommandResult {
 };
 
 class CommandParameter;
+class CommandRegistry;
+class CommandRegistrationHandle;
 
 struct CommandInvocation {
     std::vector<std::string> path;
@@ -165,6 +167,7 @@ public:
         return *children_.back();
     }
     CommandParameter& Parameter(std::string name, ParameterKind kind = ParameterKind::String) { parameters_.emplace_back(std::move(name), kind); return parameters_.back(); }
+    bool RemoveCommand(const std::string& name) { auto it = std::find_if(children_.begin(), children_.end(), [&](const auto& child){ return child->Matches(name); }); if (it == children_.end()) return false; children_.erase(it); return true; }
     template<typename T> CommandParameter& Parameter(std::string name) {
         if constexpr (std::is_same_v<T, bool>) return Parameter(std::move(name), ParameterKind::Boolean);
         else if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) return Parameter(std::move(name), ParameterKind::SignedInteger);
@@ -212,12 +215,44 @@ public:
     }
 };
 
+class CommandRegistrationHandle {
+public:
+    CommandRegistrationHandle() = default;
+    CommandRegistrationHandle(CommandRegistry* registry, std::vector<std::string> path) : registry_(registry), path_(std::move(path)) {}
+    CommandRegistrationHandle(const CommandRegistrationHandle&) = delete;
+    CommandRegistrationHandle& operator=(const CommandRegistrationHandle&) = delete;
+    CommandRegistrationHandle(CommandRegistrationHandle&& other) noexcept : registry_(other.registry_), path_(std::move(other.path_)) { other.registry_ = nullptr; }
+    CommandRegistrationHandle& operator=(CommandRegistrationHandle&& other) noexcept { if (this != &other) { Reset(); registry_ = other.registry_; path_ = std::move(other.path_); other.registry_ = nullptr; } return *this; }
+    ~CommandRegistrationHandle() { Reset(); }
+    void Reset();
+    bool Active() const noexcept { return registry_ != nullptr; }
+    const std::vector<std::string>& Path() const noexcept { return path_; }
+private:
+    CommandRegistry* registry_{nullptr};
+    std::vector<std::string> path_;
+};
+
 class CommandRegistry {
 public:
     using Middleware = std::function<CommandResult(const CommandInvocation&, const std::function<CommandResult()>&)>;
     CommandRegistry() : root_("") {}
     static CommandRegistry& GetInstance() { static CommandRegistry instance; return instance; }
     CommandNode& Command(std::string name) { return root_.Command(std::move(name)); }
+    CommandRegistrationHandle RegisterCommand(std::string name) {
+        root_.Command(name);
+        return CommandRegistrationHandle(this, {std::move(name)});
+    }
+    bool UnregisterCommand(const std::vector<std::string>& path) {
+        if (path.empty()) return false;
+        CommandNode* node = &root_;
+        for (std::size_t i = 0; i + 1 < path.size(); ++i) {
+            CommandNode* next = nullptr;
+            for (auto& child : node->children_) if (child->Matches(path[i])) { next = child.get(); break; }
+            if (!next) return false;
+            node = next;
+        }
+        return node->RemoveCommand(path.back());
+    }
     CommandRegistry& Use(Middleware middleware) { middleware_.push_back(std::move(middleware)); return *this; }
 
     CommandResult Invoke(const std::string& input) const {
@@ -332,5 +367,7 @@ private:
         return best && score <= std::max<std::size_t>(2, token.size()/2) ? "Did you mean '" + best->name_ + "'?" : "";
     }
 };
+
+inline void CommandRegistrationHandle::Reset() { if (registry_ != nullptr) { registry_->UnregisterCommand(path_); registry_ = nullptr; path_.clear(); } }
 
 } // namespace ESPressio::Command
