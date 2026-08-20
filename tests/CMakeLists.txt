@@ -12,7 +12,10 @@ FetchContent_Declare(
     GIT_TAG 3.0.1
     GIT_SHALLOW TRUE
 )
-FetchContent_MakeAvailable(ESPressioObservable)
+FetchContent_GetProperties(ESPressioObservable)
+if(NOT espressioobservable_POPULATED)
+    FetchContent_Populate(ESPressioObservable)
+endif()
 set(ESPRESSIO_OBSERVABLE_INCLUDE ${espressioobservable_SOURCE_DIR}/src)
 
 enable_testing()
