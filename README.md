@@ -1,25 +1,162 @@
 # ESPressio Command
 
-Transport-neutral, strongly typed command definition, parsing, routing, validation and invocation for the ESPressio Development Platform.
+Transport-neutral, strongly typed Command definition, parsing, routing,
+validation and invocation for the Flowduino ESPressio Development Platform.
 
-## Version
+ESPressio Command provides a common Command layer that separates **what an
+application is being asked to do** from **how that request arrived**. Serial,
+USB CDC, TCP, WebSocket, BLE, HTTP, test harnesses and programmatic callers can
+therefore share the same Command tree, parameter definitions, validation and
+callbacks without coupling application logic to a transport.
 
-**0.1.0 (pre-release)**
+## Latest Stable Version
 
-## Why a separate Command library?
+ESPressio Command is currently **0.1.0 (pre-release)**.
 
-A command is intent: **do something**. An Event is a fact: **something happened**. ESPressio Command keeps command definition independent of the mechanism that delivered it. Serial, USB CDC, TCP, WebSocket, BLE, HTTP and programmatic callers can therefore share exactly the same command tree and callbacks.
+This is the initial pre-release of the library. For release-by-release history,
+see [CHANGELOG.md](CHANGELOG.md).
 
-The core library deliberately does **not** depend on ESPressio Serial, Arduino `Stream`, `Print`, ESPressio Event, or a network stack.
+## Compatibility
+
+ESPressio Command targets **C++17** and is designed primarily for the **ESP32
+family under Arduino-ESP32** as part of the ESPressio Development Platform.
+
+The Command core is deliberately transport-neutral and does not directly depend
+on Arduino `Stream`, `Print`, ESPressio Serial, ESPressio Event, a network
+stack, or any other ESPressio component library.
+
+Host-side tests are also provided so that the transport-neutral core can be
+validated with a conventional C++17 toolchain.
+
+Compatibility should still be verified against the exact compiler,
+Arduino-ESP32 version and ESP32 target used by the consuming application.
+
+## ESPressio Development Platform
+
+The **ESPressio Development Platform** is a collection of discrete, composable
+component libraries developed around a common design ethos.
+
+The principal objectives are:
+
+- **Light-weight** — components should strive to minimise memory consumption
+  and operational overhead without sacrificing clarity or correctness.
+- **Ease of Use** — ESPressio components provide developer-friendly, strongly
+  typed abstractions over lower-level procedural facilities.
+- **Object-Oriented** — a type for everything, and everything in a type.
+- **SOLID** — to the maximum extent practical within C++, Arduino, FreeRTOS and
+  microcontroller constraints:
+  - **Single Responsibility Principle (SRP)** — keep components small and
+    focused.
+  - **Open/Closed Principle (OCP)** — prefer extension without modification.
+  - **Liskov Substitution Principle (LSP)** — derived implementations should
+    remain substitutable for their abstractions.
+  - **Interface Segregation Principle (ISP)** — prefer focused,
+    client-specific interfaces.
+  - **Dependency Inversion Principle (DIP)** — depend upon abstractions rather
+    than concrete implementations.
+
+ESPressio Command follows these principles by treating a Command invocation as
+a transport-independent application contract. Transport adapters depend on the
+Command abstraction; the Command core does not depend on the adapters.
+
+## License
+
+ESPressio and its component libraries are licensed under the **Apache License
+2.0**.
+
+See [LICENSE](LICENSE) for details.
+
+## ESPressio Library Dependencies
+
+ESPressio is designed as a modular ecosystem of independently useful libraries,
+with required dependencies kept explicit and optional integrations introduced
+only when the corresponding functionality is selected.
+
+For a complete overview of required and opt-in relationships, see:
+
+**[ESPressio Library Dependency Chart](ESPRESSIO_DEPENDENCY_CHART.md)**
+
+In the dependency chart:
+
+- **Solid relationships** represent required ESPressio dependencies.
+- **Dashed relationships** represent opt-in dependencies introduced only when
+  the corresponding feature, integration, type, or header is used.
+
+### Required ESPressio dependencies
+
+**None.**
+
+ESPressio Command is intentionally dependency-free within the ESPressio
+ecosystem. Future Serial, Event, networking, Serializable or other integrations
+should depend on Command or be provided as opt-in adapters; they must not become
+mandatory dependencies of the Command core.
+
+## Namespace
+
+The Command API resides beneath:
+
+```cpp
+ESPressio::Command
+```
+
+The principal public types are:
+
+- `CommandRegistry` — owns and resolves the Command tree.
+- `CommandNode` — describes a Command or Command group.
+- `CommandParameter` — describes and validates a parameter.
+- `CommandContext` — exposes resolved values to a Command callback.
+- `CommandInvocation` — transport-neutral structured invocation.
+- `CommandResult` — success/error result returned by Command execution.
+- `TextCommandParser` — converts textual Command lines into tokens.
+- `CommandLine` — incrementally consumes character/buffer input.
+- `CommandFactory` — convenient facade for Command registration.
 
 ## PlatformIO
 
+You can add the published library to a PlatformIO project with:
+
 ```ini
 lib_deps =
-    https://github.com/flowduino/ESPressio-Command@^0.1.0
+    flowduino/ESPressio-Command@^0.1.0
 ```
 
-## Command trees
+Until a release/tag is published, or when deliberately consuming the latest
+integration sources, use:
+
+```ini
+lib_deps =
+    https://github.com/Flowduino/ESPressio-Command.git
+```
+
+The Git source tracks the latest commits on the repository and may therefore be
+more volatile than a tagged release.
+
+## Why a separate Command library?
+
+A **Command** expresses intent: **do something**.
+
+An **Event** expresses a fact: **something happened**.
+
+Keeping these concepts separate allows application code to expose operations
+without embedding Serial, networking, protocol or UI concerns into those
+operations.
+
+```text
+Serial / USB CDC ----+
+TCP / WebSocket -----+
+BLE / HTTP ----------+--> CommandInvocation --> CommandRegistry --> callback
+Programmatic --------+
+Test harness --------+
+```
+
+Text input is therefore only one possible adapter. The same registered Command
+can be invoked from a parsed line, a structured request or another application
+component.
+
+## Command Trees
+
+Commands are organised hierarchically. A parent can represent a namespace or
+operation group while child nodes provide increasingly specific actions.
 
 ```cpp
 #include <ESPressio_Commands.hpp>
@@ -43,12 +180,14 @@ write.Parameter<bool>("state")
 write.OnExecute([](const CommandContext& context) {
     const int pin = context.Get<int>("pin");
     const bool state = context.Get<bool>("state");
+
     // digitalWrite(pin, state ? HIGH : LOW);
+
     return CommandResult::Ok("GPIO updated");
 });
 ```
 
-Both forms resolve to the same callback:
+All of the following resolve to the same callback:
 
 ```text
 gpio write 2 high
@@ -56,29 +195,49 @@ gpio write --pin 2 --state high
 gpio write --pin=2 --state=high
 ```
 
-## Parameter features
+This makes the Command definition the authoritative contract rather than any
+particular textual syntax.
+
+## Parameters
 
 Parameters can be:
 
-- strongly typed as string, bool, signed/unsigned integer or floating point;
+- strongly typed as string, boolean, signed integer, unsigned integer or
+  floating point;
 - positional, named-only, or supplied by name;
 - required or optional;
-- assigned defaults;
+- assigned default values;
 - given aliases;
 - range constrained;
-- constrained to a set of values;
+- constrained to a set of permitted values; and
 - checked by a custom validator.
+
+For example:
 
 ```cpp
 auto& mode = commands.Command("gpio").Command("mode");
-mode.Parameter<int>("pin").Range(0, 48);
+
+mode.Parameter<int>("pin")
+    .Range(0, 48);
+
 mode.Parameter("mode", ParameterKind::Enumeration)
     .OneOf({"in", "out", "pullup", "pulldown"});
 ```
 
-## Automatic help
+Resolved values are exposed through `CommandContext` and can be requested in
+the desired C++ type:
 
-Help is generated from the same metadata used to resolve commands:
+```cpp
+const int pin = context.Get<int>("pin");
+const bool state = context.Get<bool>("state");
+```
+
+Validation occurs before the Command callback is executed, keeping parsing and
+input validation out of application logic.
+
+## Automatic Help
+
+Help is generated from the same metadata used to define and resolve Commands:
 
 ```text
 help
@@ -86,23 +245,32 @@ help gpio
 help gpio write
 ```
 
-or programmatically:
+Help can also be generated programmatically:
 
 ```cpp
 auto text = commands.Help({"gpio", "write"});
 ```
 
-## Completion and typo suggestions
+Descriptions, parameters, required/optional state and defaults therefore remain
+aligned with the executable Command definition.
+
+## Completion and Typo Suggestions
+
+Registered Command metadata can also be used for completion:
 
 ```cpp
 auto matches = commands.Complete("gpio w");
 ```
 
-Unknown command names are compared with registered siblings and a nearby command is suggested where appropriate.
+Unknown Command names are compared with registered siblings and a nearby
+Command is suggested where appropriate. Hidden Commands are omitted from
+completion results.
 
-## Structured invocation
+## Structured Invocation
 
-Text parsing is only an adapter. Other input mechanisms can invoke the registry without manufacturing a command line:
+Text parsing is an adapter rather than the core Command contract. Other input
+mechanisms can invoke the registry directly without manufacturing a textual
+Command line:
 
 ```cpp
 CommandInvocation invocation;
@@ -113,77 +281,175 @@ invocation.named["state"] = "high";
 auto result = commands.Invoke(invocation);
 ```
 
-This is the intended integration point for future HTTP, WebSocket, BLE, RPC and other adapters.
+This is the intended integration point for Serial adapters, HTTP endpoints,
+WebSocket messages, BLE services, RPC mechanisms, automated tests and other
+structured callers.
 
-## Middleware and interception
+## Middleware and Interception
 
 Cross-cutting behaviour can wrap every invocation:
 
 ```cpp
 commands.Use([](const CommandInvocation& invocation, const auto& next) {
-    // authorization, audit, rate limiting, tracing, etc.
+    // Authorization, audit, rate limiting, tracing, etc.
     return next();
 });
 ```
 
-Individual commands can also register `Before(...)` and `After(...)` callbacks.
+Individual Commands can also register `Before(...)` and `After(...)` callbacks.
 
-This provides extension points for future authorization, audit, metrics, rate limiting and policy systems without coupling those concerns into command callbacks.
+These extension points allow policy, diagnostics and integration behaviour to
+be layered around Command execution without coupling those concerns to the
+Command callback itself.
 
-## Incremental text input
+## Incremental Text Input
 
-`CommandLine` accepts characters or buffers and submits complete lines to a registry. It deliberately knows nothing about Serial itself:
+`CommandLine` accepts characters or buffers and submits complete lines to a
+registry. It deliberately knows nothing about Serial itself:
 
 ```cpp
 CommandLine input(commands);
+
 input.OnResult([](const CommandResult& result) {
-    // send result.message to whichever output transport owns this input
+    // Send result.message to whichever output transport owns this input.
 });
 
 input.Feed(receivedCharacter);
 ```
 
-A future ESPressio Serial integration can simply feed bytes received from a `Stream` into this object and render results through its normal output mechanism.
+A Serial or USB CDC integration can therefore feed received bytes into the
+Command layer while retaining complete ownership of the underlying stream,
+connection and output formatting.
 
-## Aliases, visibility and deprecation
+## Aliases, Visibility and Deprecation
+
+Commands can expose aliases without duplicating callbacks:
 
 ```cpp
 commands.Command("diagnostics")
     .Alias("diag")
     .Description("Diagnostic commands");
+```
 
+Commands can also be marked as deprecated:
+
+```cpp
 commands.Command("old-command")
     .Deprecated("Use 'new-command' instead");
 ```
 
-Hidden commands remain resolvable but are omitted from generated help/completion.
+Hidden Commands remain resolvable but are omitted from generated help and
+completion.
 
-## Quoting and escaping
+## Quoting and Escaping
 
-The text parser supports whitespace-separated arguments, single/double quoted values and backslash escaping:
+The text parser supports whitespace-separated arguments, single-quoted values,
+double-quoted values and backslash escaping:
 
 ```text
 system label "Main Controller"
 system label 'Bench Unit'
 ```
 
-## Design direction
+This keeps ordinary console usage convenient without making textual parsing a
+requirement for structured callers.
 
-ESPressio Command is intended to grow as the common invocation layer for:
+## Command Results
+
+Command callbacks return `CommandResult`, providing a transport-neutral success
+state, numeric result code and optional message:
+
+```cpp
+return CommandResult::Ok("GPIO updated");
+```
+
+or:
+
+```cpp
+return CommandResult::Error("GPIO update failed", 5);
+```
+
+The caller or adapter decides how that result is represented to its consumer.
+A Serial console may print the message, while an HTTP adapter might map the
+result into a structured response.
+
+## Design Principles
+
+ESPressio Command is intentionally built around a small number of architectural
+rules:
+
+1. **Commands describe intent, not transport.**
+2. **Command definitions are the authoritative source of metadata and
+   validation.**
+3. **Application callbacks receive validated, typed values.**
+4. **Text parsing is an adapter, not the invocation model.**
+5. **Transport and protocol integrations belong outside the core.**
+6. **Cross-cutting behaviour should be implemented through middleware or
+   focused hooks rather than embedded in application callbacks.**
+7. **The core remains independently useful and dependency-free.**
+
+## Examples
+
+The repository includes examples beneath [`examples/`](examples/) demonstrating
+Command registration and invocation in an Arduino/ESP32 application.
+
+A typical application defines its Command tree during initialization and then
+feeds invocations from whichever transport or application surface owns the
+interaction.
+
+## Testing
+
+Host-side tests are provided beneath [`tests/`](tests/).
+
+They exercise the transport-neutral Command implementation independently of
+Arduino hardware. This keeps parsing, resolution, validation and invocation
+behaviour testable with a conventional C++17 toolchain while embedded examples
+validate intended ESP32 integration usage.
+
+## Future Integration Direction
+
+ESPressio Command is intended to become the common invocation layer for:
 
 - Serial and USB consoles;
-- TCP/WebSocket/BLE command surfaces;
+- TCP, WebSocket and BLE Command surfaces;
+- HTTP/RPC gateways;
 - structured programmatic invocation;
-- command discovery and schemas;
+- Command discovery and schemas;
 - authorization and permissions;
 - auditing and diagnostics;
 - cancellation/progress for asynchronous operations;
-- remote command invocation;
-- JSON/Serializable argument adapters;
-- Event bridges for command completion/result Events.
+- remote Command invocation;
+- JSON/Serializable argument adapters; and
+- Event bridges for Command completion/result Events.
 
-The command core will remain transport-neutral: adapters should depend on Command, not the other way around.
+These integrations should remain **opt-in**. The dependency direction is
+important:
+
+```text
+Serial adapter --------+
+Network adapter -------+
+Serializable adapter --+--> ESPressio Command
+Event bridge ----------+
+```
+
+The Command core must remain transport-neutral and independently usable.
+
+## Contributing
+
+Issues and contributions are welcome through the ESPressio Command GitHub
+repository. Changes should preserve the library's transport-neutral core,
+C++17 compatibility and ESPressio design principles.
+
+Where practical, behavioural changes should include corresponding tests and
+examples or documentation updates.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history and notable changes.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+ESPressio and its component libraries are licensed under the **Apache License
+2.0**.
+
+See [LICENSE](LICENSE) for details.
