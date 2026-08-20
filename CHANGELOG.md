@@ -1,3 +1,10 @@
+## 0.3.0
+
+- Added `ICommandRegistryObserver` and observer registration on `CommandRegistry`.
+- Added notifications for root command registration and unregistration, including scoped `CommandRegistrationHandle` lifetime removal.
+- Added ESPressio Observable as the registry-observer dependency.
+- Added optional ESPressio Event bridge support through ESPressio Event 5.8.0.
+
 ## 0.2.0
 
 - Added ownership-safe `CommandRegistrationHandle` for scoped command registration.
