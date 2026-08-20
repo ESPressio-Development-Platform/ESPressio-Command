@@ -252,9 +252,24 @@ public:
         const CommandNode* node = &root_; std::string full;
         for (const auto& token : path) { node = FindChild(*node, token); if (!node) return "Unknown command path"; if (!full.empty()) full += ' '; full += node->name_; }
         std::ostringstream os;
-        if (!node->name_.empty()) { os << full; if (!node->description_.empty()) os << "\n" << node->description_; os << "\n\nUsage:\n  " << full; if (!node->children_.empty()) os << " <command>"; for (const auto& p : node->parameters_) os << (p.required_ ? " <" : " [") << p.name_ << (p.required_ ? ">" : "]"); os << "\n"; }
+        if (!node->name_.empty()) {
+            os << full;
+            if (!node->description_.empty()) os << "\n" << node->description_;
+            os << "\n\nUsage:\n  " << full;
+            if (!node->children_.empty()) os << " <command>";
+            for (const auto& p : node->parameters_) os << (p.IsRequired() ? " <" : " [") << p.Name() << (p.IsRequired() ? ">" : "]");
+            os << "\n";
+        }
         if (!node->children_.empty()) { os << "\nCommands:\n"; for (const auto& c : node->children_) if (!c->hidden_) os << "  " << c->name_ << (c->description_.empty() ? "" : "\t" + c->description_) << "\n"; }
-        if (!node->parameters_.empty()) { os << "\nParameters:\n"; for (const auto& p : node->parameters_) { os << "  " << p.name_ << (p.required_ ? " (required)" : " (optional)"); if (!p.description_.empty()) os << "\t" << p.description_; if (p.hasDefault_) os << " [default: " << p.default_ << "]"; os << "\n"; } }
+        if (!node->parameters_.empty()) {
+            os << "\nParameters:\n";
+            for (const auto& p : node->parameters_) {
+                os << "  " << p.Name() << (p.IsRequired() ? " (required)" : " (optional)");
+                if (!p.DescriptionText().empty()) os << "\t" << p.DescriptionText();
+                if (p.HasDefault()) os << " [default: " << p.DefaultValue() << "]";
+                os << "\n";
+            }
+        }
         if (node == &root_) os << "Commands:\n" << HelpChildren(root_);
         return os.str();
     }
@@ -286,10 +301,10 @@ private:
         for (const auto& parameter : node->parameters_) {
             std::string value; bool found = false;
             for (const auto& pair : supplied) if (parameter.Matches(pair.first)) { value = pair.second; found = true; break; }
-            if (!found && !parameter.namedOnly_ && pos < positional.size()) { value = positional[pos++]; found = true; }
-            if (!found && parameter.hasDefault_) { value = parameter.default_; found = true; }
-            if (!found && parameter.required_) return CommandResult::Error("Missing required parameter '" + parameter.name_ + "'.\n" + Help(invocation.path));
-            if (found) { auto validation = parameter.Validate(value); if (!validation.empty()) return CommandResult::Error(validation); context.values_[parameter.name_] = value; }
+            if (!found && !parameter.IsNamedOnly() && pos < positional.size()) { value = positional[pos++]; found = true; }
+            if (!found && parameter.HasDefault()) { value = parameter.DefaultValue(); found = true; }
+            if (!found && parameter.IsRequired()) return CommandResult::Error("Missing required parameter '" + parameter.Name() + "'.\n" + Help(invocation.path));
+            if (found) { auto validation = parameter.Validate(value); if (!validation.empty()) return CommandResult::Error(validation); context.values_[parameter.Name()] = value; }
         }
         if (pos < positional.size()) return CommandResult::Error("Too many positional parameters");
         for (const auto& pair : supplied) { bool known = false; for (const auto& p : node->parameters_) if (p.Matches(pair.first)) { known = true; break; } if (!known) return CommandResult::Error("Unknown parameter '--" + pair.first + "'"); }
