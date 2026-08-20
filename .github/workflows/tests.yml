@@ -2,7 +2,12 @@ name: Tests
 
 on:
   push:
+    branches:
+      - main
+      - feature/observable-callback-coverage
   pull_request:
+    branches:
+      - main
 
 jobs:
   host-tests:
@@ -15,3 +20,41 @@ jobs:
         run: cmake --build build --parallel
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  esp32-example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Flowduino/ESPressio-Observable
+          ref: 3.0.1
+          path: deps/ESPressio-Observable
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Create PlatformIO consumer project
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/espressio-command-ci/src" "$RUNNER_TEMP/espressio-command-ci/lib"
+          rsync -a --exclude='.git' --exclude='deps' --exclude='build' ./ "$RUNNER_TEMP/espressio-command-ci/lib/ESPressio-Command/"
+          cp -R deps/ESPressio-Observable "$RUNNER_TEMP/espressio-command-ci/lib/ESPressio-Observable"
+          cat > "$RUNNER_TEMP/espressio-command-ci/platformio.ini" <<'EOF'
+          [env:esp32dev]
+          platform = espressif32
+          board = esp32dev
+          framework = arduino
+          build_flags =
+              -std=gnu++17
+              -frtti
+          build_unflags =
+              -std=gnu++11
+              -fno-rtti
+          lib_deps =
+              ESPressio-Command
+              ESPressio-Observable
+          EOF
+      - name: Compile BasicCommand
+        shell: bash
+        run: |
+          cp examples/BasicCommand/BasicCommand.ino "$RUNNER_TEMP/espressio-command-ci/src/main.cpp"
+          pio run -d "$RUNNER_TEMP/espressio-command-ci"
