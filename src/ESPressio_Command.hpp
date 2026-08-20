@@ -25,6 +25,8 @@ struct CommandResult {
     static CommandResult Error(std::string message, int code = 1) { return {false, code, std::move(message)}; }
 };
 
+class CommandParameter;
+
 struct CommandInvocation {
     std::vector<std::string> path;
     std::vector<std::string> positional;
@@ -46,6 +48,7 @@ public:
 
 private:
     friend class CommandRegistry;
+    friend class CommandParameter;
     std::map<std::string, std::string> values_;
     CommandInvocation invocation_;
 
