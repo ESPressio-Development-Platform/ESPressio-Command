@@ -9,6 +9,24 @@ USB CDC, TCP, WebSocket, BLE, HTTP, test harnesses and programmatic callers can
 therefore share the same Command tree, parameter definitions, validation and
 callbacks without coupling application logic to a transport.
 
+## 0.3.0 Development Update — Observable Callback Coverage
+
+The `feature/observable-callback-coverage` branch targets **ESPressio Command 0.3.0**. The stable/pre-release information below remains the 0.2.0 documentation until 0.3.0 is released.
+
+Command 0.3.0 adds a required dependency on **ESPressio Observable >= 3.0.1 and < 4.0.0** and introduces `ICommandRegistryObserver`. `CommandRegistry` now reports root command registration and successful unregistration, including scoped `CommandRegistrationHandle` cleanup. Command invocation itself deliberately remains on the existing callbacks, middleware, `Before(...)` and `After(...)` hooks rather than being duplicated as Observable traffic.
+
+ESPressio Event remains **optional**. ESPressio Event 5.8.0 provides `CommandRegistryEventBridge`, which converts registry lifecycle observations into asynchronous `CommandRegisteredEvent` and `CommandUnregisteredEvent` instances without making Event a Command dependency.
+
+Development-branch PlatformIO dependencies are:
+
+```ini
+lib_deps =
+    https://github.com/Flowduino/ESPressio-Command.git#feature/observable-callback-coverage
+    flowduino/ESPressio-Observable@^3.0.1
+```
+
+The host tests include dedicated registry-observer lifecycle coverage. See [CHANGELOG.md](CHANGELOG.md) for the complete 0.3.0 change list.
+
 ## Latest Stable Version
 
 ESPressio Command is currently **0.2.0 (pre-release)**.
@@ -23,7 +41,7 @@ family under Arduino-ESP32** as part of the ESPressio Development Platform.
 
 The Command core is deliberately transport-neutral and does not directly depend
 on Arduino `Stream`, `Print`, ESPressio Serial, ESPressio Event, a network
-stack, or any other ESPressio component library.
+stack, or any other ESPressio component library. Beginning with the 0.3.0 development generation it does require ESPressio Observable 3.x for its registry lifecycle surface.
 
 Host-side tests are also provided so that the transport-neutral core can be
 validated with a conventional C++17 toolchain.
@@ -84,12 +102,9 @@ In the dependency chart:
 
 ### Required ESPressio dependencies
 
-**None.**
+The stable 0.2.0 pre-release has no ESPressio dependency. **The 0.3.0 development branch requires ESPressio Observable >= 3.0.1 and < 4.0.0.**
 
-ESPressio Command is intentionally dependency-free within the ESPressio
-ecosystem. Future Serial, Event, networking, Serializable or other integrations
-should depend on Command or be provided as opt-in adapters; they must not become
-mandatory dependencies of the Command core.
+Serial, Event, networking, Serializable and other integrations should depend on Command or be provided as opt-in adapters; they must not become mandatory dependencies of the Command core. Event remains opt-in even though 5.8.0 provides a Command registry Event bridge.
 
 ## Namespace
 
@@ -110,15 +125,19 @@ The principal public types are:
 - `TextCommandParser` — converts textual Command lines into tokens.
 - `CommandLine` — incrementally consumes character/buffer input.
 - `CommandFactory` — convenient facade for Command registration.
+- `CommandRegistrationHandle` — ownership-safe scoped dynamic registration.
+- `ICommandRegistryObserver` — 0.3.0 registry lifecycle observer.
 
 ## PlatformIO
 
-You can add the published library to a PlatformIO project with:
+For the stable/pre-release 0.2.0 generation:
 
 ```ini
 lib_deps =
     flowduino/ESPressio-Command@^0.2.0
 ```
+
+For 0.3.0, consume ESPressio Observable 3.x as shown in the development update above.
 
 Until a release/tag is published, or when deliberately consuming the latest
 integration sources, use:
@@ -302,6 +321,31 @@ These extension points allow policy, diagnostics and integration behaviour to
 be layered around Command execution without coupling those concerns to the
 Command callback itself.
 
+## Observable Registry Lifecycle (0.3.0)
+
+Registry topology changes can now be observed without changing command execution semantics:
+
+```cpp
+class RegistryObserver final :
+    public ESPressio::Command::ICommandRegistryObserver {
+public:
+    void OnCommandRegistered(const std::vector<std::string>& path) override {
+        // Passive diagnostics / discovery refresh.
+    }
+
+    void OnCommandUnregistered(const std::vector<std::string>& path) override {
+        // Owned registration lifetime ended.
+    }
+};
+
+RegistryObserver observer;
+auto observerHandle = commands.RegisterObserver(&observer);
+```
+
+New root creation and successful root removal emit notifications. Duplicate registration attempts that do not change the tree do not emit. `CommandRegistrationHandle::Reset()` and handle destruction flow through the same successful-unregistration path.
+
+With ESPressio Event 5.8.0 selected, `CommandRegistryEventBridge` can convert these facts into asynchronous Events. Event remains an optional downstream adapter.
+
 ## Incremental Text Input
 
 `CommandLine` accepts characters or buffers and submits complete lines to a
@@ -386,7 +430,7 @@ rules:
 5. **Transport and protocol integrations belong outside the core.**
 6. **Cross-cutting behaviour should be implemented through middleware or
    focused hooks rather than embedded in application callbacks.**
-7. **The core remains independently useful and dependency-free.**
+7. **The core remains independently useful; from 0.3.0 its only required ESPressio dependency is Observable.**
 
 ## Examples
 
@@ -404,7 +448,7 @@ Host-side tests are provided beneath [`tests/`](tests/).
 They exercise the transport-neutral Command implementation independently of
 Arduino hardware. This keeps parsing, resolution, validation and invocation
 behaviour testable with a conventional C++17 toolchain while embedded examples
-validate intended ESP32 integration usage.
+validate intended ESP32 integration usage. The 0.3.0 generation also validates registry-observer registration lifetime and notification semantics.
 
 ## Future Integration Direction
 
@@ -420,7 +464,7 @@ ESPressio Command is intended to become the common invocation layer for:
 - cancellation/progress for asynchronous operations;
 - remote Command invocation;
 - JSON/Serializable argument adapters; and
-- Event bridges for Command completion/result Events.
+- Event bridges for Command lifecycle/completion/result Events where those asynchronous representations are justified.
 
 These integrations should remain **opt-in**. The dependency direction is
 important:
@@ -428,7 +472,7 @@ important:
 ```text
 Serial adapter --------+
 Network adapter -------+
-Serializable adapter --+--> ESPressio Command
+Serializable adapter --+--> ESPressio Command --> ESPressio Observable
 Event bridge ----------+
 ```
 

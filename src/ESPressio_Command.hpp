@@ -15,6 +15,10 @@
 #include <utility>
 #include <vector>
 
+#include <ESPressio_Observable.hpp>
+
+#include "ESPressio_ICommandRegistryObserver.hpp"
+
 namespace ESPressio::Command {
 
 struct CommandResult {
@@ -45,7 +49,6 @@ public:
         return it->second;
     }
     const CommandInvocation& Invocation() const { return invocation_; }
-
     template<typename T> T Get(const std::string& name) const { return Convert<T>(Raw(name)); }
 
 private:
@@ -79,7 +82,8 @@ private:
                 return static_cast<T>(parsed);
             }
         } else if constexpr (std::is_floating_point_v<T>) {
-            std::size_t used = 0; long double parsed = std::stold(value, &used);
+            std::size_t used = 0;
+            long double parsed = std::stold(value, &used);
             if (used != value.size()) throw std::invalid_argument("Expected numeric value: " + value);
             return static_cast<T>(parsed);
         } else {
@@ -102,7 +106,6 @@ public:
     CommandParameter& Range(long double min, long double max) { hasRange_ = true; min_ = min; max_ = max; return *this; }
     CommandParameter& OneOf(std::vector<std::string> values) { choices_ = std::move(values); return *this; }
     CommandParameter& Validator(std::function<bool(const std::string&)> fn, std::string message = "Validation failed") { validator_ = std::move(fn); validatorMessage_ = std::move(message); return *this; }
-
     const std::string& Name() const { return name_; }
     const std::string& DescriptionText() const { return description_; }
     bool IsRequired() const { return required_; }
@@ -112,25 +115,15 @@ public:
     ParameterKind Kind() const { return kind_; }
     const std::vector<std::string>& Aliases() const { return aliases_; }
     const std::vector<std::string>& Choices() const { return choices_; }
-
-    bool Matches(const std::string& key) const {
-        if (key == name_) return true;
-        return std::find(aliases_.begin(), aliases_.end(), key) != aliases_.end();
-    }
+    bool Matches(const std::string& key) const { return key == name_ || std::find(aliases_.begin(), aliases_.end(), key) != aliases_.end(); }
 
     std::string Validate(const std::string& value) const {
         try {
             switch (kind_) {
                 case ParameterKind::Boolean: (void)CommandContext::Convert<bool>(value); break;
-                case ParameterKind::SignedInteger: {
-                    auto v = CommandContext::Convert<long long>(value); if (hasRange_ && (v < min_ || v > max_)) return "Value for '" + name_ + "' is outside the allowed range"; break;
-                }
-                case ParameterKind::UnsignedInteger: {
-                    auto v = CommandContext::Convert<unsigned long long>(value); if (hasRange_ && (v < min_ || v > max_)) return "Value for '" + name_ + "' is outside the allowed range"; break;
-                }
-                case ParameterKind::FloatingPoint: {
-                    auto v = CommandContext::Convert<long double>(value); if (hasRange_ && (v < min_ || v > max_)) return "Value for '" + name_ + "' is outside the allowed range"; break;
-                }
+                case ParameterKind::SignedInteger: { auto v = CommandContext::Convert<long long>(value); if (hasRange_ && (v < min_ || v > max_)) return "Value for '" + name_ + "' is outside the allowed range"; break; }
+                case ParameterKind::UnsignedInteger: { auto v = CommandContext::Convert<unsigned long long>(value); if (hasRange_ && (v < min_ || v > max_)) return "Value for '" + name_ + "' is outside the allowed range"; break; }
+                case ParameterKind::FloatingPoint: { auto v = CommandContext::Convert<long double>(value); if (hasRange_ && (v < min_ || v > max_)) return "Value for '" + name_ + "' is outside the allowed range"; break; }
                 default: break;
             }
         } catch (const std::exception& e) { return "Invalid value for '" + name_ + "': " + e.what(); }
@@ -160,12 +153,7 @@ public:
     CommandNode& OnExecute(Callback cb) { callback_ = std::move(cb); return *this; }
     CommandNode& Before(Callback cb) { before_.push_back(std::move(cb)); return *this; }
     CommandNode& After(Callback cb) { after_.push_back(std::move(cb)); return *this; }
-
-    CommandNode& Command(std::string name) {
-        for (auto& child : children_) if (child->Matches(name)) return *child;
-        children_.push_back(std::make_unique<CommandNode>(std::move(name)));
-        return *children_.back();
-    }
+    CommandNode& Command(std::string name) { for (auto& child : children_) if (child->Matches(name)) return *child; children_.push_back(std::make_unique<CommandNode>(std::move(name))); return *children_.back(); }
     CommandParameter& Parameter(std::string name, ParameterKind kind = ParameterKind::String) { parameters_.emplace_back(std::move(name), kind); return parameters_.back(); }
     bool RemoveCommand(const std::string& name) { auto it = std::find_if(children_.begin(), children_.end(), [&](const auto& child){ return child->Matches(name); }); if (it == children_.end()) return false; children_.erase(it); return true; }
     template<typename T> CommandParameter& Parameter(std::string name) {
@@ -175,7 +163,6 @@ public:
         else if constexpr (std::is_floating_point_v<T>) return Parameter(std::move(name), ParameterKind::FloatingPoint);
         else return Parameter(std::move(name), ParameterKind::String);
     }
-
     bool Matches(const std::string& value) const { return value == name_ || std::find(aliases_.begin(), aliases_.end(), value) != aliases_.end(); }
     const std::string& Name() const { return name_; }
     const std::string& DescriptionText() const { return description_; }
@@ -233,17 +220,46 @@ private:
 };
 
 class CommandRegistry {
+private:
+    class RegistryObservable final : public Observable::Observable {
+    private:
+        template <typename Callback>
+        void Notify(Callback&& callback) {
+            ExecuteNotification([&](NotificationContext& notification) {
+                notification.WithObservers<ICommandRegistryObserver>([&](ICommandRegistryObserver* observer) {
+                    try { callback(observer); } catch (...) {}
+                });
+            });
+        }
+    public:
+        void Registered(const std::vector<std::string>& path) { Notify([&](ICommandRegistryObserver* observer){ observer->OnCommandRegistered(path); }); }
+        void Unregistered(const std::vector<std::string>& path) { Notify([&](ICommandRegistryObserver* observer){ observer->OnCommandUnregistered(path); }); }
+    };
+
 public:
     using Middleware = std::function<CommandResult(const CommandInvocation&, const std::function<CommandResult()>&)>;
-    CommandRegistry() : root_("") {}
+    CommandRegistry() : root_(""), observable_(std::make_shared<RegistryObservable>()) {}
     static CommandRegistry& GetInstance() { static CommandRegistry instance; return instance; }
-    CommandNode& Command(std::string name) { return root_.Command(std::move(name)); }
+
+    Observable::ObserverHandlePtr RegisterObserver(ICommandRegistryObserver* observer) { return observable_->RegisterObserver(observer); }
+    void UnregisterObserver(ICommandRegistryObserver* observer) { observable_->UnregisterObserver(observer); }
+
+    CommandNode& Command(std::string name) {
+        const bool existed = std::any_of(root_.children_.begin(), root_.children_.end(), [&](const auto& child){ return child->Matches(name); });
+        CommandNode& result = root_.Command(name);
+        if (!existed) observable_->Registered({name});
+        return result;
+    }
+
     CommandRegistrationHandle RegisterCommand(std::string name) {
         if (name.empty()) return {};
         for (const auto& child : root_.children_) if (child->Matches(name)) return {};
+        std::vector<std::string> path{name};
         root_.Command(name);
-        return CommandRegistrationHandle(this, {std::move(name)});
+        observable_->Registered(path);
+        return CommandRegistrationHandle(this, std::move(path));
     }
+
     bool UnregisterCommand(const std::vector<std::string>& path) {
         if (path.empty()) return false;
         CommandNode* node = &root_;
@@ -253,8 +269,11 @@ public:
             if (!next) return false;
             node = next;
         }
-        return node->RemoveCommand(path.back());
+        const bool removed = node->RemoveCommand(path.back());
+        if (removed) observable_->Unregistered(path);
+        return removed;
     }
+
     CommandRegistry& Use(Middleware middleware) { middleware_.push_back(std::move(middleware)); return *this; }
 
     CommandResult Invoke(const std::string& input) const {
@@ -277,9 +296,7 @@ public:
         const bool endsSpace = !input.empty() && std::isspace(static_cast<unsigned char>(input.back()));
         std::string prefix; if (!endsSpace && !tokens.empty()) { prefix = tokens.back(); tokens.pop_back(); }
         const CommandNode* node = &root_;
-        for (const auto& token : tokens) {
-            const CommandNode* next = FindChild(*node, token); if (!next) return {}; node = next;
-        }
+        for (const auto& token : tokens) { const CommandNode* next = FindChild(*node, token); if (!next) return {}; node = next; }
         std::vector<std::string> result;
         for (const auto& child : node->children_) if (!child->hidden_ && child->name_.compare(0, prefix.size(), prefix) == 0) result.push_back(child->name_);
         return result;
@@ -314,6 +331,7 @@ public:
 private:
     CommandNode root_;
     std::vector<Middleware> middleware_;
+    std::shared_ptr<RegistryObservable> observable_;
 
     static const CommandNode* FindChild(const CommandNode& node, const std::string& name) { for (const auto& child : node.children_) if (child->Matches(name)) return child.get(); return nullptr; }
     static std::string HelpChildren(const CommandNode& node) { std::ostringstream os; for (const auto& c : node.children_) if (!c->hidden_) os << "  " << c->name_ << (c->description_.empty() ? "" : "\t" + c->description_) << "\n"; return os.str(); }
