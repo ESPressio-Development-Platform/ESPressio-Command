@@ -42,12 +42,10 @@ int main() {
 
     JsonCommandInterpreter json(registry);
 
-    // Canonical path + typed named parameters.
     auto result = json.Invoke(R"({"path":["gpio","write"],"parameters":{"pin":2,"state":true,"duty":0.5}})");
     assert(result.success);
     assert(pin == 2 && state && std::fabs(duty - 0.5) < 0.000001 && calls == 1);
 
-    // Native JSON types are preserved into middleware/CommandInvocation.
     bool sawInteger = false;
     bool sawBoolean = false;
     bool sawFloating = false;
@@ -63,23 +61,18 @@ int main() {
     result = json.Invoke(R"({"path":["gpio","write"],"parameters":{"pin":3,"state":false,"duty":0.25}})");
     assert(result.success && sawInteger && sawBoolean && sawFloating);
 
-    // Convenience command string.
     result = json.Invoke(R"({"command":"gpio write","parameters":{"pin":4,"state":true}})");
     assert(result.success && pin == 4 && state && duty == 1.0);
 
-    // Positional JSON values.
     result = json.Invoke(R"({"path":["gpio","write"],"positional":[5,false,0.75]})");
     assert(result.success && pin == 5 && !state && std::fabs(duty - 0.75) < 0.000001);
 
-    // Strings remain strings and preserve spaces without command-line quoting.
     result = json.Invoke(R"({"path":["system","label"],"parameters":{"value":"Main Controller"}})");
     assert(result.success && label == "Main Controller");
 
-    // 'named' is accepted as an alias for 'parameters'.
     result = json.Invoke(R"({"path":["gpio","write"],"named":{"pin":6,"state":true}})");
     assert(result.success && pin == 6 && state);
 
-    // Parsing can be used independently from invocation.
     CommandInvocation invocation;
     std::string error;
     assert(json.Parse(R"({"path":["gpio","write"],"parameters":{"pin":7,"state":true}})", invocation, &error));
@@ -88,7 +81,6 @@ int main() {
     assert(invocation.named.at("pin").GetType() == CommandValue::Type::SignedInteger);
     assert(invocation.named.at("state").GetType() == CommandValue::Type::Boolean);
 
-    // Invalid JSON and malformed envelopes.
     assert(!json.Invoke("{").success);
     assert(!json.Invoke(R"([])").success);
     assert(!json.Invoke(R"({})").success);
@@ -98,19 +90,16 @@ int main() {
     assert(!json.Invoke(R"({"path":["gpio","write"],"parameters":{},"named":{}})").success);
     assert(!json.Invoke(R"({"path":["gpio","write"],"positional":"not-an-array"})").success);
 
-    // Current Command parameter model is scalar: reject object/array/null values.
     assert(!json.Invoke(R"({"path":["gpio","write"],"parameters":{"pin":{"value":2},"state":true}})").success);
     assert(!json.Invoke(R"({"path":["gpio","write"],"parameters":{"pin":[2],"state":true}})").success);
     assert(!json.Invoke(R"({"path":["gpio","write"],"parameters":{"pin":null,"state":true}})").success);
 
-    // Registry validation remains authoritative.
     assert(!json.Invoke(R"({"path":["gpio","write"],"parameters":{"pin":99,"state":true}})").success);
     assert(!json.Invoke(R"({"path":["gpio","write"],"parameters":{"pin":2.5,"state":true}})").success);
     assert(!json.Invoke(R"({"path":["gpio","write"],"parameters":{"pin":2,"state":"not-a-bool"}})").success);
     assert(!json.Invoke(R"({"path":["gpio","write"],"parameters":{"pin":2,"state":true,"unknown":5}})").success);
     assert(!json.Invoke(R"({"path":["missing"],"parameters":{}})").success);
 
-    // Structured result JSON is deterministic and machine-readable.
     const std::string resultJson = json.InvokeToJson(R"({"path":["gpio","write"],"parameters":{"pin":8,"state":false}})");
     ArduinoJson::JsonDocument resultDocument;
     assert(!ArduinoJson::deserializeJson(resultDocument, resultJson));
@@ -125,7 +114,6 @@ int main() {
     assert(errorDocument["code"].as<int>() != 0);
     assert(std::string(errorDocument["message"].as<const char*>()).find("range") != std::string::npos);
 
-    // Discovery exposes command and parameter metadata.
     const std::string discoveryJson = json.Describe();
     ArduinoJson::JsonDocument discovery;
     assert(!ArduinoJson::deserializeJson(discovery, discoveryJson));
@@ -154,7 +142,6 @@ int main() {
     assert(parameters[0]["minimum"].as<double>() == 0.0);
     assert(parameters[0]["maximum"].as<double>() == 48.0);
 
-    // Hidden commands can be explicitly included for privileged tooling.
     const std::string fullDiscoveryJson = json.Describe({}, true);
     ArduinoJson::JsonDocument fullDiscovery;
     assert(!ArduinoJson::deserializeJson(fullDiscovery, fullDiscoveryJson));
