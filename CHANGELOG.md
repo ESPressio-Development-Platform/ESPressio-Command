@@ -1,3 +1,26 @@
+## 0.4.0 — 2026-08-21
+
+### Added
+
+- Moved Command registry Event types and `CommandRegistryEventBridge` ownership into ESPressio Command.
+- Added an opt-in Command -> Event integration targeting ESPressio Event 6.0.0 while keeping the normal Command core independent of Event.
+
+### Changed
+
+- Preserved the existing `ESPressio_CommandEvents.hpp` and `ESPressio_CommandRegistryEventBridge.hpp` public names in their new owning package.
+- Updated package metadata, documentation, dependency charts, and CI for the 0.4.0 architecture.
+- The normal Command umbrella remains Event-free; Event is required only when the Event bridge headers are selected.
+
+### Compatibility
+
+- Core Command APIs and registry behavior are unchanged.
+- Applications using the Event bridge must obtain the bridge headers from ESPressio Command 0.4.0 rather than ESPressio Event 6.0.0.
+
+### Tracking
+
+- Implements #3.
+- Coordinated with Flowduino/ESPressio-Event#35.
+
 ## 0.3.0
 
 - Added `ICommandRegistryObserver` and observer registration on `CommandRegistry`.

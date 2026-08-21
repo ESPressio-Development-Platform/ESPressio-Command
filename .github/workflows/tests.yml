@@ -2,9 +2,6 @@ name: Tests
 
 on:
   push:
-    branches:
-      - main
-      - feature/observable-callback-coverage
   pull_request:
     branches:
       - main
@@ -14,6 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify core Command remains Event-free
+        run: |
+          if grep -R -nE '#[[:space:]]*include[[:space:]]*[<\"]ESPressio_(Event|CommandEvents|CommandRegistryEventBridge)' src/ESPressio_Command.hpp src/ESPressio_Commands.hpp; then
+            echo 'Core Command umbrella must not acquire Event integration.'
+            exit 1
+          fi
       - name: Configure
         run: cmake -S tests -B build
       - name: Build
@@ -21,40 +24,69 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-  esp32-example:
+  esp32-event-integration:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: project/ESPressio-Command
       - uses: actions/checkout@v4
         with:
           repository: Flowduino/ESPressio-Observable
           ref: 3.0.1
-          path: deps/ESPressio-Observable
+          path: project/dependencies/ESPressio-Observable
+      - uses: actions/checkout@v4
+        with:
+          repository: Flowduino/ESPressio-Units
+          ref: 0.2.3
+          path: project/dependencies/ESPressio-Units
+      - uses: actions/checkout@v4
+        with:
+          repository: Flowduino/ESPressio-Timing
+          ref: 2.2.4
+          path: project/dependencies/ESPressio-Timing
+      - uses: actions/checkout@v4
+        with:
+          repository: Flowduino/ESPressio-Threads
+          ref: 3.1.4
+          path: project/dependencies/ESPressio-Threads
+      - uses: actions/checkout@v4
+        with:
+          repository: Flowduino/ESPressio-Event
+          ref: 6.0.0
+          path: project/dependencies/ESPressio-Event
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
       - name: Install PlatformIO
         run: pip install platformio
-      - name: Create PlatformIO consumer project
+      - name: Create Event integration compile project
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/espressio-command-ci/src" "$RUNNER_TEMP/espressio-command-ci/lib"
-          rsync -a --exclude='.git' --exclude='deps' --exclude='build' ./ "$RUNNER_TEMP/espressio-command-ci/lib/ESPressio-Command/"
-          cp -R deps/ESPressio-Observable "$RUNNER_TEMP/espressio-command-ci/lib/ESPressio-Observable"
-          cat > "$RUNNER_TEMP/espressio-command-ci/platformio.ini" <<'EOF'
-          [env:esp32dev]
+          mkdir -p project/compile/src
+          cat > project/compile/platformio.ini <<'EOF'
+          [env:esp32]
           platform = espressif32
           board = esp32dev
           framework = arduino
-          build_flags =
-              -std=gnu++17
-              -frtti
-          build_unflags =
-              -std=gnu++11
-              -fno-rtti
+          build_flags = -std=gnu++17 -frtti
+          build_unflags = -std=gnu++11 -fno-rtti
+          lib_ldf_mode = deep+
           lib_deps =
-              ESPressio-Command
-              ESPressio-Observable
+              ../dependencies/ESPressio-Observable
+              ../dependencies/ESPressio-Units
+              ../dependencies/ESPressio-Timing
+              ../dependencies/ESPressio-Threads
+              ../dependencies/ESPressio-Event
+              ../ESPressio-Command
           EOF
-      - name: Compile BasicCommand
-        shell: bash
-        run: |
-          cp examples/BasicCommand/BasicCommand.ino "$RUNNER_TEMP/espressio-command-ci/src/main.cpp"
-          pio run -d "$RUNNER_TEMP/espressio-command-ci"
+          cat > project/compile/src/main.cpp <<'EOF'
+          #include <Arduino.h>
+          #include <ESPressio_Command.hpp>
+          #include <ESPressio_CommandEvents.hpp>
+          #include <ESPressio_CommandRegistryEventBridge.hpp>
+          void setup() { ESPressio::Event::CommandRegistryEventBridge::GetInstance().Initialize(); }
+          void loop() {}
+          EOF
+      - name: Compile Command Event integration
+        run: pio run -d project/compile
