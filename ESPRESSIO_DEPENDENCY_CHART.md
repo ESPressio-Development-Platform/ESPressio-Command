@@ -1,38 +1,32 @@
-# ESPressio Dependency Chart
+# ESPressio Dependency Chart — Command 0.4.0
 
-## Purpose
+![ESPressio Library Dependency Chart](ESPRESSIO_DEPENDENCY_CHART.svg)
 
-This document describes ESPressio Command's place within the ESPressio library ecosystem.
-
-- **Solid arrow** — required ESPressio dependency.
-- **Dashed arrow** — opt-in dependency activated only by the associated feature/header.
-- Arrows point from the dependent library to the library it consumes.
-
-## ESPressio Command 0.2.0
-
-ESPressio Command has **no required ESPressio dependencies**.
-
-The core remains transport-neutral and independently usable:
+## Command 0.4.0
 
 ```text
-ESPressio Command 0.2.0
-    |
-    +-- no required ESPressio dependencies
+Command 0.4.0
+    -> Observable >= 3.0.1 < 4.0.0
+    - - -> Event >= 6.0.0 < 7.0.0
+            Command Event types / CommandRegistryEventBridge only
 ```
 
-Higher-level libraries may optionally consume Command:
+The Event relationship is opt-in. Normal Command use remains Event-free.
+
+## Final coordinated ecosystem
 
 ```text
-ESPressio Serial 0.4.0
-    - - -> ESPressio Command >= 0.2.0 < 1.0.0
+Observable 3.0.1
+Serializable 0.10.2
+Units 0.2.3
+Timing 2.2.4
+Threads 3.1.4
+Command 0.4.0
+Security 0.3.0
+Event 6.0.0
+Sockets 0.6.0
+ESP-Now 0.6.0
+Serial 0.6.0
 ```
 
-Serial's `CommandConsole` adapts Stream/Console input to the shared Command registry, while its Command-backed EventConsole registers an `event` subtree using ownership-safe registration handles.
-
-The dependency direction is intentionally one-way: Command does not depend on Serial, Event, Serializable, Sockets, networking transports, or Arduino `Stream`/`Print`.
-
-## Design rule
-
-Future transport/protocol integrations should depend on ESPressio Command rather than adding those transports as dependencies of the Command core.
-
-Examples include future Serial, USB CDC, TCP, WebSocket, BLE, HTTP/RPC, Serializable, or Event bridge integrations.
+Command owns its Command-specific Event bridge. Event 6.0.0 does not depend back on Command, so no reciprocal edge remains.
