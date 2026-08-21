@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Flowduino/ESPressio-Event
-          ref: reintegration/6.0.0-event-architecture
+          ref: 6.0.0
           path: project/dependencies/ESPressio-Event
       - uses: actions/setup-python@v5
         with:
