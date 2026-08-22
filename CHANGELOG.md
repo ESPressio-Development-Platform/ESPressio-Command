@@ -1,3 +1,49 @@
+## 1.0.0 — 2026-08-21
+
+### Added
+
+- Added `CommandValue`, a representation-neutral scalar value type supporting strings, booleans, signed/unsigned integers and floating-point values.
+- Added `CommandContext::Value()` for access to the native structured `CommandValue`; `Raw()` remains available as a normalized textual view.
+- Added `TextCommandInterpreter` as an explicit facade for the existing human-oriented text interpretation path.
+- Added optional `JsonCommandInterpreter` support using ArduinoJson 7.x without making ArduinoJson a core Command dependency.
+- Added JSON command input using either a canonical `path` array or a convenience `command` string, with named and positional scalar parameters.
+- Added structured JSON `CommandResult` output through `SerializeResult()` / `InvokeToJson()`.
+- Added JSON command discovery through `Describe()`, including descriptions, executability, aliases, visibility/deprecation metadata and parameter type/default/range/choice metadata.
+- Added `CommandRegistry::Resolve()` / `Root()` and public metadata accessors required by representation-independent discovery tools.
+- Added comprehensive host and ESP32 validation for the JSON interpreter and typed invocation model.
+
+### Changed
+
+- `CommandInvocation::positional` now stores `CommandValue` rather than `std::string`.
+- `CommandInvocation::named` now stores `CommandValue` rather than `std::string`.
+- Structured invocation is now genuinely representation-neutral: typed callers no longer need to flatten JSON/native scalar values into strings before invoking a Command.
+- Registry parameter validation now consumes typed `CommandValue` instances directly while retaining existing text conversion semantics.
+- The normal `ESPressio_Commands.hpp` umbrella exposes `TextCommandInterpreter` but deliberately does not include `JsonCommandInterpreter`, keeping ArduinoJson opt-in.
+- CI now validates stacked pull requests, enforces the JSON adapter boundary and compiles the optional JSON integration for ESP32.
+
+### Breaking changes
+
+- Code depending on the exact public types `std::vector<std::string>` and `std::map<std::string, std::string>` for `CommandInvocation::positional` / `named` must update to the corresponding `CommandValue` containers.
+- Common assignments such as `invocation.named["pin"] = "2"` and initializer lists of string values remain supported through implicit `CommandValue` construction.
+- New structured callers should prefer native values such as `invocation.named["pin"] = 2` and `invocation.named["enabled"] = true`.
+
+### JSON constraints
+
+- This release intentionally supports scalar Command parameters only, matching the existing Command parameter model.
+- JSON object, array and null parameter values are rejected rather than silently stringified.
+- The JSON interpreter is optional and requires ArduinoJson 7.x only when `ESPressio_JsonCommandInterpreter.hpp` is included.
+
+### Compatibility
+
+- Existing textual Command syntax, `TextCommandParser`, `CommandLine`, help/completion, parameter validation, middleware, callbacks, registry observation and Event integration remain supported.
+- `CommandContext::Raw()` remains source-compatible as the normalized string representation of a resolved parameter.
+- ESPressio Observable remains the only required ESPressio dependency.
+- The optional Command -> Event integration remains compatible with ESPressio Event 6.x.
+
+### Tracking
+
+- Implements #9.
+
 ## 0.4.0 — 2026-08-21
 
 ### Added

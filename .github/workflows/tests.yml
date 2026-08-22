@@ -3,8 +3,6 @@ name: Tests
 on:
   push:
   pull_request:
-    branches:
-      - main
 
 jobs:
   host-tests:
@@ -17,12 +15,72 @@ jobs:
             echo 'Core Command umbrella must not acquire Event integration.'
             exit 1
           fi
+      - name: Verify core Command remains JSON-adapter-free
+        run: |
+          if grep -R -nE '#[[:space:]]*include[[:space:]]*[<\"](ArduinoJson|ESPressio_JsonCommandInterpreter)' src/ESPressio_Command.hpp src/ESPressio_Commands.hpp; then
+            echo 'Core Command umbrella must not require the optional JSON adapter.'
+            exit 1
+          fi
       - name: Configure
         run: cmake -S tests -B build
       - name: Build
         run: cmake --build build --parallel
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  esp32-json-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: project/ESPressio-Command
+      - uses: actions/checkout@v4
+        with:
+          repository: Flowduino/ESPressio-Observable
+          ref: 3.0.1
+          path: project/dependencies/ESPressio-Observable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Create JSON interpreter compile project
+        shell: bash
+        run: |
+          mkdir -p project/compile-json/src
+          cat > project/compile-json/platformio.ini <<'EOF'
+          [env:esp32]
+          platform = espressif32
+          board = esp32dev
+          framework = arduino
+          build_flags = -std=gnu++17 -frtti
+          build_unflags = -std=gnu++11 -fno-rtti
+          lib_ldf_mode = deep+
+          lib_deps =
+              bblanchon/ArduinoJson@^7.4.3
+              ../dependencies/ESPressio-Observable
+              ../ESPressio-Command
+          EOF
+          cat > project/compile-json/src/main.cpp <<'EOF'
+          #include <Arduino.h>
+          #include <ESPressio_Command.hpp>
+          #include <ESPressio_TextCommandInterpreter.hpp>
+          #include <ESPressio_JsonCommandInterpreter.hpp>
+          ESPressio::Command::CommandRegistry registry;
+          ESPressio::Command::JsonCommandInterpreter json(registry);
+          void setup() {
+              auto& command = registry.Command("gpio").Command("write");
+              command.Parameter<int>("pin");
+              command.Parameter<bool>("state");
+              command.OnExecute([](const ESPressio::Command::CommandContext&) {
+                  return ESPressio::Command::CommandResult::Ok();
+              });
+              (void)json.Invoke("{\"path\":[\"gpio\",\"write\"],\"parameters\":{\"pin\":2,\"state\":true}}");
+          }
+          void loop() {}
+          EOF
+      - name: Compile JSON Command integration
+        run: pio run -d project/compile-json
 
   esp32-event-integration:
     runs-on: ubuntu-latest

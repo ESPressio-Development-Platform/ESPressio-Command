@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
 include(FetchContent)
+
 FetchContent_Declare(
     ESPressioObservable
     GIT_REPOSITORY https://github.com/Flowduino/ESPressio-Observable.git
@@ -18,7 +19,20 @@ if(NOT espressioobservable_POPULATED)
 endif()
 set(ESPRESSIO_OBSERVABLE_INCLUDE ${espressioobservable_SOURCE_DIR}/src)
 
+FetchContent_Declare(
+    ArduinoJson
+    GIT_REPOSITORY https://github.com/bblanchon/ArduinoJson.git
+    GIT_TAG v7.4.3
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(ArduinoJson)
+if(NOT arduinojson_POPULATED)
+    FetchContent_Populate(ArduinoJson)
+endif()
+set(ARDUINOJSON_INCLUDE ${arduinojson_SOURCE_DIR}/src)
+
 enable_testing()
+
 add_executable(test_command test_command.cpp)
 target_include_directories(test_command PRIVATE ../src ${ESPRESSIO_OBSERVABLE_INCLUDE})
 add_test(NAME ESPressioCommand COMMAND test_command)
@@ -26,3 +40,13 @@ add_test(NAME ESPressioCommand COMMAND test_command)
 add_executable(test_observable test_observable.cpp)
 target_include_directories(test_observable PRIVATE ../src ${ESPRESSIO_OBSERVABLE_INCLUDE})
 add_test(NAME ESPressioCommandObservable COMMAND test_observable)
+
+add_executable(test_json_command test_json_command.cpp)
+target_include_directories(
+    test_json_command
+    PRIVATE
+        ../src
+        ${ESPRESSIO_OBSERVABLE_INCLUDE}
+        ${ARDUINOJSON_INCLUDE}
+)
+add_test(NAME ESPressioCommandJson COMMAND test_json_command)
