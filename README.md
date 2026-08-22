@@ -1,6 +1,6 @@
 # ESPressio Command
 
-Transport-neutral, strongly typed Command definition, interpretation, routing, validation and invocation for the Flowduino ESPressio Development Platform.
+Transport-neutral, strongly typed Command definition, interpretation, routing, validation and invocation for the ESPressio Development Platform.
 
 ESPressio Command separates **what an application is being asked to do** from **how that request arrived**. Serial, USB CDC, TCP, WebSocket, BLE, HTTP, ESP-NOW, test harnesses and programmatic callers can therefore share the same Command tree, parameter definitions, validation and callbacks without coupling application logic to a transport or representation.
 
@@ -100,14 +100,14 @@ Core/text use with PlatformIO:
 
 ```ini
 lib_deps =
-    flowduino/ESPressio-Command@^1.0.0
+    espressio-development-platform/ESPressio-Command@^1.0.0
 ```
 
 For JSON interpretation, add ArduinoJson 7.x explicitly:
 
 ```ini
 lib_deps =
-    flowduino/ESPressio-Command@^1.0.0
+    espressio-development-platform/ESPressio-Command@^1.0.0
     bblanchon/ArduinoJson@^7.4.3
 ```
 
@@ -115,8 +115,8 @@ When using the optional Event bridge, also include Event 6.x:
 
 ```ini
 lib_deps =
-    flowduino/ESPressio-Command@^1.0.0
-    flowduino/ESPressio-Event@^6.0.0
+    espressio-development-platform/ESPressio-Command@^1.0.0
+    espressio-development-platform/ESPressio-Event@^6.0.0
 ```
 
 The library targets C++17 and is designed primarily for ESP32/Arduino-ESP32, while its transport-neutral core and JSON interpretation are also exercised by host-side tests.
