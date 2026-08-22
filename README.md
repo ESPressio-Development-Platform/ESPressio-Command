@@ -4,9 +4,9 @@ Transport-neutral, strongly typed Command definition, interpretation, routing, v
 
 ESPressio Command separates **what an application is being asked to do** from **how that request arrived**. Serial, USB CDC, TCP, WebSocket, BLE, HTTP, ESP-NOW, test harnesses and programmatic callers can therefore share the same Command tree, parameter definitions, validation and callbacks without coupling application logic to a transport or representation.
 
-## Current Version — 1.0.0
+## Current Version — 1.0.1
 
-Command 1.0.0 adds a representation-neutral typed `CommandValue`/`CommandInvocation` model, an explicit text interpreter and an optional JSON interpreter with structured results and machine-readable Command discovery.
+Command 1.0.1 is the repository-relocation dependency patch for the Command 1.0 generation. It preserves the representation-neutral typed invocation model and existing runtime behaviour.
 
 This is a major release because the exact public container types of `CommandInvocation::positional` and `CommandInvocation::named` now contain `CommandValue` rather than `std::string`. Common string assignment and initializer-list usage remains supported, but code depending on those exact container types must migrate.
 
@@ -69,13 +69,13 @@ Principal public types include:
 Required:
 
 ```text
-ESPressio Observable >= 3.0.1 < 4.0.0
+ESPressio Observable >= 3.0.2 < 4.0.0
 ```
 
 Optional Event integration:
 
 ```text
-ESPressio Event >= 6.0.0 < 7.0.0
+ESPressio Event >= 6.0.1 < 7.0.0
 ```
 
 Optional JSON integration:
@@ -100,14 +100,14 @@ Core/text use with PlatformIO:
 
 ```ini
 lib_deps =
-    espressio-development-platform/ESPressio-Command@^1.0.0
+    espressio-development-platform/ESPressio-Command@^1.0.1
 ```
 
 For JSON interpretation, add ArduinoJson 7.x explicitly:
 
 ```ini
 lib_deps =
-    espressio-development-platform/ESPressio-Command@^1.0.0
+    espressio-development-platform/ESPressio-Command@^1.0.1
     bblanchon/ArduinoJson@^7.4.3
 ```
 
@@ -115,8 +115,8 @@ When using the optional Event bridge, also include Event 6.x:
 
 ```ini
 lib_deps =
-    espressio-development-platform/ESPressio-Command@^1.0.0
-    espressio-development-platform/ESPressio-Event@^6.0.0
+    espressio-development-platform/ESPressio-Command@^1.0.1
+    espressio-development-platform/ESPressio-Event@^6.0.1
 ```
 
 The library targets C++17 and is designed primarily for ESP32/Arduino-ESP32, while its transport-neutral core and JSON interpretation are also exercised by host-side tests.
