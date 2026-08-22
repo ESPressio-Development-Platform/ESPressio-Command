@@ -219,6 +219,36 @@ auto result = commands.Invoke(invocation);
 
 This is the intended integration point for Serial adapters, HTTP endpoints, WebSocket messages, BLE services, RPC mechanisms, automated tests, and other structured callers.
 
+## `CommandFactory`: small facade for modules and tests
+
+`CommandFactory` is a lightweight public facade over a `CommandRegistry`. It is useful when a component should receive a command-facing dependency rather than reaching for the process-wide registry directly.
+
+```cpp
+#include <ESPressio_CommandFactory.hpp>
+
+using namespace ESPressio::Command;
+
+CommandRegistry localRegistry;
+CommandFactory factory(localRegistry);
+
+factory.Command("ping")
+    .Description("Health check")
+    .OnExecute([](const CommandContext&) {
+        return CommandResult::Ok("pong");
+    });
+
+auto result = factory.Invoke("ping");
+```
+
+If no registry is supplied, the factory uses `CommandRegistry::GetInstance()`:
+
+```cpp
+CommandFactory factory;
+auto& registry = factory.Registry();
+```
+
+Both textual and structured `CommandInvocation` forms can be invoked through the facade. This makes it particularly convenient for dependency-injected modules and host tests using an isolated registry.
+
 ## Middleware and interception
 
 Cross-cutting behaviour can wrap invocation:
