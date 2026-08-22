@@ -82,6 +82,17 @@
 
 # Changelog
 
+## 1.0.1 — 2026-08-22
+
+### Changed
+- Published the post-migration ESPressio Command package generation from `ESPressio-Development-Platform`.
+- Raised required ESPressio Observable to `>=3.0.2 <4.0.0`.
+- Raised optional ESPressio Event integration to `>=6.0.1 <7.0.0`.
+- Updated package metadata, README dependency/install guidance, CI validation, and dependency documentation.
+
+### Compatibility
+- No Command public API or runtime behaviour changes are introduced by this repository-relocation patch release.
+
 All notable changes to ESPressio Command are documented here.
 
 ## [0.1.0] - Unreleased
