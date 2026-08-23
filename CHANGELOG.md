@@ -1,3 +1,36 @@
+# Changelog
+
+All notable changes to ESPressio Command are documented here.
+
+## 1.0.2 — 2026-08-23
+
+### Changed
+- Updated the optional ESPressio Event integration baseline to `>=6.0.2 <7.0.0`.
+- Updated ESP32 Event-integration CI to the released Serializable 0.11.2 cascade generation: Units 0.2.6, Timing 2.2.7, Threads 3.1.6 and Event 6.0.2.
+- Updated package metadata and README dependency/install guidance for Command 1.0.2.
+
+### Architecture
+- ESPressio Observable remains the only required ESPressio dependency.
+- Event remains opt-in and is used only by Command-owned Event types and `CommandRegistryEventBridge`.
+- JSON support remains independently opt-in through ArduinoJson 7.x.
+
+### Compatibility
+- No Command public API, typed invocation, parsing, validation, callback, observer, JSON or Event-bridge behaviour changes.
+
+### Tracking
+- Closes #26.
+
+## 1.0.1 — 2026-08-22
+
+### Changed
+- Published the post-migration ESPressio Command package generation from `ESPressio-Development-Platform`.
+- Raised required ESPressio Observable to `>=3.0.2 <4.0.0`.
+- Raised optional ESPressio Event integration to `>=6.0.1 <7.0.0`.
+- Updated package metadata, README dependency/install guidance, CI validation, and dependency documentation.
+
+### Compatibility
+- No Command public API or runtime behaviour changes are introduced by this repository-relocation patch release.
+
 ## 1.0.0 — 2026-08-21
 
 ### Added
@@ -79,21 +112,6 @@
 - Added ownership-safe `CommandRegistrationHandle` for scoped command registration.
 - Added `CommandRegistry::RegisterCommand()` and `UnregisterCommand()` for dynamic integrations.
 - Added command-subtree removal support and lifecycle tests.
-
-# Changelog
-
-## 1.0.1 — 2026-08-22
-
-### Changed
-- Published the post-migration ESPressio Command package generation from `ESPressio-Development-Platform`.
-- Raised required ESPressio Observable to `>=3.0.2 <4.0.0`.
-- Raised optional ESPressio Event integration to `>=6.0.1 <7.0.0`.
-- Updated package metadata, README dependency/install guidance, CI validation, and dependency documentation.
-
-### Compatibility
-- No Command public API or runtime behaviour changes are introduced by this repository-relocation patch release.
-
-All notable changes to ESPressio Command are documented here.
 
 ## [0.1.0] - Unreleased
 
