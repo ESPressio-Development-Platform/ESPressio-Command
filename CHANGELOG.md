@@ -2,6 +2,26 @@
 
 All notable changes to ESPressio Command are documented here.
 
+## 1.0.3 — 2026-08-24
+
+### Changed
+- Updated the optional ESPressio Event integration baseline to `>=6.0.3 <7.0.0`.
+- Updated ESP32 Event-integration CI to the released Serializable 0.11.3 cascade generation: Units 0.2.7, Timing 2.2.8, Threads 3.1.7 and Event 6.0.3.
+- Preserved required ESPressio Observable at `>=3.0.2 <4.0.0`.
+- Updated package, Arduino and component metadata for Command 1.0.3.
+- Updated README dependency/install guidance and dependency documentation for the new cascade generation.
+
+### Architecture
+- ESPressio Observable remains the only required ESPressio dependency.
+- Event remains opt-in and is used only by Command-owned Event types and `CommandRegistryEventBridge`.
+- JSON support remains independently opt-in through ArduinoJson 7.x.
+
+### Compatibility
+- No Command public API, typed invocation, parsing, validation, callback, Observer, JSON or Event-bridge behaviour changes.
+
+### Tracking
+- Closes #28.
+
 ## 1.0.2 — 2026-08-23
 
 ### Changed
