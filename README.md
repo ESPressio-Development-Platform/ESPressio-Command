@@ -4,11 +4,11 @@ Transport-neutral, strongly typed Command definition, interpretation, routing, v
 
 ESPressio Command separates **what an application is being asked to do** from **how that request arrived**. Serial, USB CDC, TCP, WebSocket, BLE, HTTP, ESP-NOW, test harnesses and programmatic callers can therefore share the same Command tree, parameter definitions, validation and callbacks without coupling application logic to a transport or representation.
 
-## Current Version — 1.0.1
+## Current Version — 1.0.3
 
-Command 1.0.1 is the repository-relocation dependency patch for the Command 1.0 generation. It preserves the representation-neutral typed invocation model and existing runtime behaviour.
+Command 1.0.3 is a dependency-maintenance release in the Serializable 0.11.3 cascade. It preserves the representation-neutral typed invocation model and existing runtime behaviour while validating the optional Event integration against released Event 6.0.3 and its released dependency chain.
 
-This is a major release because the exact public container types of `CommandInvocation::positional` and `CommandInvocation::named` now contain `CommandValue` rather than `std::string`. Common string assignment and initializer-list usage remains supported, but code depending on those exact container types must migrate.
+The 1.0 generation is a major release because the exact public container types of `CommandInvocation::positional` and `CommandInvocation::named` now contain `CommandValue` rather than `std::string`. Common string assignment and initializer-list usage remains supported, but code depending on those exact container types must migrate.
 
 ## Why a separate Command library?
 
@@ -75,7 +75,7 @@ ESPressio Observable >= 3.0.2 < 4.0.0
 Optional Event integration:
 
 ```text
-ESPressio Event >= 6.0.1 < 7.0.0
+ESPressio Event >= 6.0.3 < 7.0.0
 ```
 
 Optional JSON integration:
@@ -100,14 +100,14 @@ Core/text use with PlatformIO:
 
 ```ini
 lib_deps =
-    espressio-development-platform/ESPressio-Command@^1.0.1
+    espressio-development-platform/ESPressio-Command@^1.0.3
 ```
 
 For JSON interpretation, add ArduinoJson 7.x explicitly:
 
 ```ini
 lib_deps =
-    espressio-development-platform/ESPressio-Command@^1.0.1
+    espressio-development-platform/ESPressio-Command@^1.0.3
     bblanchon/ArduinoJson@^7.4.3
 ```
 
@@ -115,8 +115,8 @@ When using the optional Event bridge, also include Event 6.x:
 
 ```ini
 lib_deps =
-    espressio-development-platform/ESPressio-Command@^1.0.1
-    espressio-development-platform/ESPressio-Event@^6.0.1
+    espressio-development-platform/ESPressio-Command@^1.0.3
+    espressio-development-platform/ESPressio-Event@^6.0.3
 ```
 
 The library targets C++17 and is designed primarily for ESP32/Arduino-ESP32, while its transport-neutral core and JSON interpretation are also exercised by host-side tests.
@@ -825,7 +825,7 @@ Examples beneath [`examples/`](examples/) demonstrate Command registration and i
 
 Host-side tests beneath [`tests/`](tests/) exercise text parsing, typed structured invocation, conversion, validation, JSON interpretation, JSON results, discovery, registration lifetime, middleware and registry observation independently of hardware.
 
-CI additionally compiles the optional JSON adapter on ESP32 with ArduinoJson 7.x and retains the existing ESP32 Event-integration compile check.
+CI additionally compiles the optional JSON adapter on ESP32 with ArduinoJson 7.x and validates the optional Event integration against released Event 6.0.3 and its released dependency chain.
 
 # Changelog
 

@@ -1,26 +1,28 @@
-# ESPressio Dependency Chart — Current Released Generation
+# ESPressio Dependency Chart — Serializable 0.11.3 Cascade
 
 ![ESPressio Library Dependency Chart](ESPRESSIO_DEPENDENCY_CHART.svg)
 
-This document is the canonical snapshot of the current released ESPressio dependency generation. Arrows point from the consuming library to the library it consumes.
+This document is the canonical snapshot of the current ESPressio dependency cascade. Arrows point from the consuming library to the library it consumes.
 
 - **Required** — the dependency is part of the library's normal/core contract.
 - **Opt-in** — the dependency is introduced only when the corresponding integration/header is selected.
 
-## Released generation
+## Current cascade generation
 
 ```text
 Observable    3.0.2
-Serializable  0.10.3
-Units         0.2.4
-Timing        2.2.5
-Threads       3.1.5
-Event         6.0.1
-Command       1.0.1
-Security      0.3.0
-Sockets       0.7.0
-ESP-Now       0.8.0
-Serial        0.7.2
+Serializable  0.11.3
+Units         0.2.7
+Timing        2.2.8
+Threads       3.1.7
+Event         6.0.3
+Command       1.0.3   (this release)
+Security      0.4.1   -> next patch required
+Persistence   0.3.1   -> downstream patch required
+Sockets       0.7.2   -> downstream patch required
+ESP-Now       0.8.2   -> downstream patch required
+WiFi          0.2.0   unreleased / released-cascade repoint pending
+Serial        downstream terminal cascade pending
 ```
 
 ## Required dependencies
@@ -29,39 +31,39 @@ Serial        0.7.2
 Observable 3.0.2
     -> none
 
-Serializable 0.10.3
+Serializable 0.11.3
     -> none
 
-Units 0.2.4
+Units 0.2.7
     -> none
 
-Timing 2.2.5
-    -> Units >= 0.2.3 < 1.0.0
+Timing 2.2.8
+    -> Units >= 0.2.7 < 1.0.0
     -> Observable >= 3.0.2 < 4.0.0
 
-Threads 3.1.5
-    -> Timing >= 2.2.4 < 3.0.0
+Threads 3.1.7
+    -> Timing >= 2.2.8 < 3.0.0
     -> Observable >= 3.0.2 < 4.0.0
 
-Event 6.0.1
-    -> Threads >= 3.1.4 < 4.0.0
-    -> Timing >= 2.2.4 < 3.0.0
+Event 6.0.3
+    -> Threads >= 3.1.7 < 4.0.0
+    -> Timing >= 2.2.8 < 3.0.0
     -> Observable >= 3.0.2 < 4.0.0
 
-Command 1.0.1
+Command 1.0.3
     -> Observable >= 3.0.2 < 4.0.0
 
-Security 0.3.0
+Security 0.4.1
     -> Observable >= 3.0.2 < 4.0.0
 
-Sockets 0.7.0
+Sockets 0.7.2
     -> Observable >= 3.0.2 < 4.0.0
 
-ESP-Now 0.8.0
-    -> Timing >= 2.2.4 < 3.0.0
+ESP-Now 0.8.2
+    -> Timing >= 2.2.7 < 3.0.0
     -> Observable >= 3.0.2 < 4.0.0
 
-Serial 0.7.2
+Serial
     -> none in the core package
 ```
 
@@ -69,48 +71,50 @@ Serial 0.7.2
 
 ```text
 Units
-    - - -> Serializable >= 0.10.2 < 1.0.0
+    - - -> Serializable >= 0.11.3 < 1.0.0
             Serializable Unit variants
 
 Event
-    - - -> Serializable >= 0.10.2 < 1.0.0
+    - - -> Serializable >= 0.11.3 < 1.0.0
             Serializable Events / Event Transport
 
 Command
-    - - -> Event >= 6.0.1 < 7.0.0
+    - - -> Event >= 6.0.3 < 7.0.0
             Command-owned Event types / CommandRegistryEventBridge
 
 Security
-    - - -> Event >= 6.0.1 < 7.0.0
+    - - -> Event
             Security-owned Event types / TransportSecurityEventBridge
 
 Sockets
-    - - -> Event >= 6.0.1 < 7.0.0
-    - - -> Command >= 1.0.0 < 2.0.0
-    - - -> Security >= 0.3.0 < 1.0.0
-    - - -> Timing >= 2.2.4 < 3.0.0
+    - - -> Event
+    - - -> Command
+    - - -> Security
+    - - -> Timing
 
 ESP-Now
-    - - -> Event >= 6.0.1 < 7.0.0
-    - - -> Command >= 1.0.0 < 2.0.0
-    - - -> Security >= 0.3.0 < 1.0.0
+    - - -> Event
+    - - -> Command
+    - - -> Security
 
 Serial
-    - - -> Command >= 1.0.0 < 2.0.0
-    - - -> Security >= 0.3.0 < 1.0.0
-    - - -> Sockets >= 0.7.0 < 1.0.0
-    - - -> ESP-Now >= 0.8.0 < 1.0.0
-    - - -> Event >= 6.0.1 < 7.0.0
-    - - -> Serializable >= 0.10.2 < 1.0.0
-    - - -> Timing >= 2.2.4 < 3.0.0
-    - - -> Threads >= 3.1.4 < 4.0.0
+    - - -> Command
+    - - -> Security
+    - - -> Sockets
+    - - -> ESP-Now
+    - - -> Event
+    - - -> Serializable
+    - - -> Timing
+    - - -> Threads
 ```
+
+The downstream integration ranges shown generically above are intentionally advanced only when their owning library reaches its turn in this cascade. This avoids documentation claiming unreleased dependency baselines prematurely.
 
 `JsonCommandInterpreter` optionally consumes external **ArduinoJson 7.x**. ArduinoJson is not an ESPressio library and is therefore not represented as an ESPressio graph edge.
 
 ## Dependency-direction invariants
 
-Event 6.0.1 owns the generic Event mechanism. Domain-specific Event types and bridges belong to the lowest-order library that owns the represented concept without introducing a reverse dependency:
+Event 6.0.3 owns the generic Event mechanism. Domain-specific Event types and bridges belong to the lowest-order library that owns the represented concept without introducing a reverse dependency:
 
 ```text
 Command  - - -> Event
@@ -130,4 +134,4 @@ Serial remains terminal/downstream. No upstream ESPressio library should depend 
 
 ## Standalone repositories
 
-ESPressio Tree and ESPressio WiFi are not dependency edges in the coordinated graph above. Tree is a standalone generic component. WiFi currently has no implemented public API and must not be treated as a dependency of the released stack merely because legacy package metadata exists in its repository.
+ESPressio Tree remains standalone. ESPressio WiFi 0.2.0 is currently unreleased and is being brought onto the released dependency cascade before release; it must not be treated as a released dependency edge until that validation is complete.
