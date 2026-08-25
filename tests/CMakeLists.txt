@@ -50,3 +50,7 @@ target_include_directories(
         ${ARDUINOJSON_INCLUDE}
 )
 add_test(NAME ESPressioCommandJson COMMAND test_json_command)
+
+add_executable(test_async_command test_async_command.cpp)
+target_include_directories(test_async_command PRIVATE ../src)
+add_test(NAME ESPressioCommandAsync COMMAND test_async_command)
