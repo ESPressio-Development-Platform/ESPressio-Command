@@ -24,6 +24,11 @@
             "name": "ESPressio-Observable",
             "version": ">=3.0.2 <4.0.0",
             "url": "https://github.com/ESPressio-Development-Platform/ESPressio-Observable.git"
+        },
+        {
+            "name": "ESPressio-Event",
+            "url": "https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#optimisation/55-event-registry-footprint",
+            "platforms": "espressif32"
         }
     ]
 }
