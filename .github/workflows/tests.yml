@@ -36,9 +36,39 @@ jobs:
           path: project/ESPressio-Command
       - uses: actions/checkout@v4
         with:
+          repository: ESPressio-Development-Platform/ESPressio-Task
+          ref: feature/1-task-execution
+          path: project/dependencies/ESPressio-Task
+      - uses: actions/checkout@v4
+        with:
           repository: ESPressio-Development-Platform/ESPressio-Observable
           ref: 3.0.2
           path: project/dependencies/ESPressio-Observable
+      - uses: actions/checkout@v4
+        with:
+          repository: ESPressio-Development-Platform/ESPressio-Serializable
+          ref: 0.11.3
+          path: project/dependencies/ESPressio-Serializable
+      - uses: actions/checkout@v4
+        with:
+          repository: ESPressio-Development-Platform/ESPressio-Units
+          ref: 0.2.7
+          path: project/dependencies/ESPressio-Units
+      - uses: actions/checkout@v4
+        with:
+          repository: ESPressio-Development-Platform/ESPressio-Timing
+          ref: 2.2.8
+          path: project/dependencies/ESPressio-Timing
+      - uses: actions/checkout@v4
+        with:
+          repository: ESPressio-Development-Platform/ESPressio-Threads
+          ref: optimisation/69-resource-footprint
+          path: project/dependencies/ESPressio-Threads
+      - uses: actions/checkout@v4
+        with:
+          repository: ESPressio-Development-Platform/ESPressio-Event
+          ref: optimisation/55-event-registry-footprint
+          path: project/dependencies/ESPressio-Event
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
@@ -58,7 +88,13 @@ jobs:
           lib_ldf_mode = deep+
           lib_deps =
               bblanchon/ArduinoJson@^7.4.3
+              ../dependencies/ESPressio-Task
               ../dependencies/ESPressio-Observable
+              ../dependencies/ESPressio-Serializable
+              ../dependencies/ESPressio-Units
+              ../dependencies/ESPressio-Timing
+              ../dependencies/ESPressio-Threads
+              ../dependencies/ESPressio-Event
               ../ESPressio-Command
           EOF
           cat > project/compile-json/src/main.cpp <<'EOF'
@@ -90,9 +126,19 @@ jobs:
           path: project/ESPressio-Command
       - uses: actions/checkout@v4
         with:
+          repository: ESPressio-Development-Platform/ESPressio-Task
+          ref: feature/1-task-execution
+          path: project/dependencies/ESPressio-Task
+      - uses: actions/checkout@v4
+        with:
           repository: ESPressio-Development-Platform/ESPressio-Observable
           ref: 3.0.2
           path: project/dependencies/ESPressio-Observable
+      - uses: actions/checkout@v4
+        with:
+          repository: ESPressio-Development-Platform/ESPressio-Serializable
+          ref: 0.11.3
+          path: project/dependencies/ESPressio-Serializable
       - uses: actions/checkout@v4
         with:
           repository: ESPressio-Development-Platform/ESPressio-Units
@@ -106,12 +152,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ESPressio-Development-Platform/ESPressio-Threads
-          ref: 3.1.7
+          ref: optimisation/69-resource-footprint
           path: project/dependencies/ESPressio-Threads
       - uses: actions/checkout@v4
         with:
           repository: ESPressio-Development-Platform/ESPressio-Event
-          ref: 6.0.3
+          ref: optimisation/55-event-registry-footprint
           path: project/dependencies/ESPressio-Event
       - uses: actions/setup-python@v5
         with:
@@ -131,7 +177,9 @@ jobs:
           build_unflags = -std=gnu++11 -fno-rtti
           lib_ldf_mode = deep+
           lib_deps =
+              ../dependencies/ESPressio-Task
               ../dependencies/ESPressio-Observable
+              ../dependencies/ESPressio-Serializable
               ../dependencies/ESPressio-Units
               ../dependencies/ESPressio-Timing
               ../dependencies/ESPressio-Threads
@@ -146,5 +194,5 @@ jobs:
           void setup() { ESPressio::Event::CommandRegistryEventBridge::GetInstance().Initialize(); }
           void loop() {}
           EOF
-      - name: Compile Command Event integration against Event 6.0.3
+      - name: Compile Command Event integration against coordinated branches
         run: pio run -d project/compile
