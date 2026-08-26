@@ -10,19 +10,22 @@
 
 namespace ESPressio::Event {
 
-class CommandRegisteredEvent final : public Event<> {
+class CommandRegisteredEvent final :
+    public TypedEvent<CommandRegisteredEvent> {
 public:
     const std::vector<std::string> Path;
     explicit CommandRegisteredEvent(const std::vector<std::string>& path) : Path(path) {}
 };
 
-class CommandUnregisteredEvent final : public Event<> {
+class CommandUnregisteredEvent final :
+    public TypedEvent<CommandUnregisteredEvent> {
 public:
     const std::vector<std::string> Path;
     explicit CommandUnregisteredEvent(const std::vector<std::string>& path) : Path(path) {}
 };
 
-class InboundCommandEvent final : public Event<> {
+class InboundCommandEvent final :
+    public TypedEvent<InboundCommandEvent> {
 public:
     const Command::CommandRequestEnvelope Envelope;
 
@@ -31,7 +34,8 @@ public:
     ) : Envelope(envelope) {}
 };
 
-class CommandCompletedEvent final : public Event<> {
+class CommandCompletedEvent final :
+    public TypedEvent<CommandCompletedEvent> {
 public:
     const Command::CommandRequestEnvelope Request;
     const Command::CommandResponseEnvelope Response;
@@ -48,7 +52,8 @@ public:
     }
 };
 
-class CommandTimedOutEvent final : public Event<> {
+class CommandTimedOutEvent final :
+    public TypedEvent<CommandTimedOutEvent> {
 public:
     const Command::CommandRequestId RequestId;
     const Command::CommandOriginAddress Destination;
