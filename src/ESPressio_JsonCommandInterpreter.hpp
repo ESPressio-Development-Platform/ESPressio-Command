@@ -49,7 +49,9 @@ public:
         }
 
         if (hasPath) {
-            for (ArduinoJson::JsonVariantConst item : object["path"].as<ArduinoJson::JsonArrayConst>()) {
+            const auto path = object["path"].as<ArduinoJson::JsonArrayConst>();
+            invocation.path.reserve(path.size());
+            for (ArduinoJson::JsonVariantConst item : path) {
                 if (!item.is<const char*>()) {
                     SetError(error, "Every 'path' element must be a string");
                     return false;
@@ -95,7 +97,7 @@ public:
                     );
                     return false;
                 }
-                invocation.named[pair.key().c_str()] = std::move(value);
+                invocation.named.emplace(pair.key().c_str(), std::move(value));
             }
         }
 
@@ -104,7 +106,9 @@ public:
                 SetError(error, "'positional' must be an array");
                 return false;
             }
-            for (ArduinoJson::JsonVariantConst item : object["positional"].as<ArduinoJson::JsonArrayConst>()) {
+            const auto positional = object["positional"].as<ArduinoJson::JsonArrayConst>();
+            invocation.positional.reserve(positional.size());
+            for (ArduinoJson::JsonVariantConst item : positional) {
                 CommandValue value;
                 if (!ReadScalar(item, value)) {
                     SetError(error, "Every positional parameter must be a JSON scalar value");

@@ -69,7 +69,7 @@ public:
     }
 
     const CommandInvocation& Invocation() const {
-        return invocation_;
+        return *invocation_;
     }
 
     template<typename T>
@@ -81,7 +81,7 @@ private:
     friend class CommandRegistry;
     std::map<std::string, CommandValue> values_;
     std::map<std::string, std::string> rawValues_;
-    CommandInvocation invocation_;
+    const CommandInvocation* invocation_{nullptr};
 };
 
 enum class ParameterKind {
@@ -387,7 +387,7 @@ public:
             }
             if (std::isspace(static_cast<unsigned char>(character))) {
                 if (!current.empty()) {
-                    output.push_back(current);
+                    output.push_back(std::move(current));
                     current.clear();
                 }
                 continue;
@@ -400,7 +400,7 @@ public:
             if (error != nullptr) *error = "Unterminated quoted string";
             return {};
         }
-        if (!current.empty()) output.push_back(current);
+        if (!current.empty()) output.push_back(std::move(current));
         return output;
     }
 };
@@ -549,7 +549,7 @@ public:
             tokens.erase(tokens.begin());
             return CommandResult::Ok(Help(tokens));
         }
-        return InvokeTokens(tokens, input);
+        return InvokeTokens(std::move(tokens), input);
     }
 
     CommandResult Invoke(const CommandInvocation& invocation) const {
@@ -576,7 +576,7 @@ public:
 
         std::string prefix;
         if (!endsSpace && !tokens.empty()) {
-            prefix = tokens.back();
+            prefix = std::move(tokens.back());
             tokens.pop_back();
         }
 
@@ -701,7 +701,7 @@ private:
     }
 
     CommandResult InvokeTokens(
-        const std::vector<std::string>& tokens,
+        std::vector<std::string> tokens,
         const std::string& raw
     ) const {
         const CommandNode* node = &root_;
@@ -713,7 +713,7 @@ private:
             const CommandNode* child = FindChild(*node, tokens[index]);
             if (child == nullptr) break;
             node = child;
-            invocation.path.push_back(tokens[index]);
+            invocation.path.push_back(std::move(tokens[index]));
             ++index;
         }
 
@@ -731,10 +731,10 @@ private:
         }
 
         while (index < tokens.size()) {
-            const std::string token = tokens[index++];
+            std::string token = std::move(tokens[index++]);
             if (token.rfind("--", 0) == 0) {
                 const auto equals = token.find('=');
-                const std::string key = token.substr(
+                std::string key = token.substr(
                     2,
                     equals == std::string::npos
                         ? std::string::npos
@@ -747,11 +747,14 @@ private:
                     if (index >= tokens.size()) {
                         return CommandResult::Error("Missing value for --" + key);
                     }
-                    value = tokens[index++];
+                    value = std::move(tokens[index++]);
                 }
-                invocation.named[key] = value;
+                invocation.named.emplace(
+                    std::move(key),
+                    CommandValue(std::move(value))
+                );
             } else {
-                invocation.positional.emplace_back(token);
+                invocation.positional.emplace_back(std::move(token));
             }
         }
 
@@ -763,44 +766,42 @@ private:
         const CommandInvocation& invocation
     ) const {
         CommandContext context;
-        context.invocation_ = invocation;
+        context.invocation_ = &invocation;
         std::size_t positionalIndex = 0;
 
         for (const auto& parameter : node.parameters_) {
-            CommandValue value;
-            bool found = false;
+            const CommandValue* value = nullptr;
+            CommandValue defaultValue;
 
             for (const auto& pair : invocation.named) {
                 if (parameter.Matches(pair.first)) {
-                    value = pair.second;
-                    found = true;
+                    value = &pair.second;
                     break;
                 }
             }
 
-            if (!found && !parameter.IsNamedOnly() &&
+            if (value == nullptr && !parameter.IsNamedOnly() &&
                 positionalIndex < invocation.positional.size()) {
-                value = invocation.positional[positionalIndex++];
-                found = true;
+                value = &invocation.positional[positionalIndex++];
             }
 
-            if (!found && parameter.HasDefault()) {
-                value = parameter.DefaultValue();
-                found = true;
+            if (value == nullptr && parameter.HasDefault()) {
+                defaultValue = parameter.DefaultValue();
+                value = &defaultValue;
             }
 
-            if (!found && parameter.IsRequired()) {
+            if (value == nullptr && parameter.IsRequired()) {
                 return CommandResult::Error(
                     "Missing required parameter '" + parameter.Name() + "'.\n" +
                     Help(invocation.path)
                 );
             }
 
-            if (found) {
-                const std::string validation = parameter.Validate(value);
+            if (value != nullptr) {
+                const std::string validation = parameter.Validate(*value);
                 if (!validation.empty()) return CommandResult::Error(validation);
-                context.rawValues_[parameter.Name()] = value.ToString();
-                context.values_[parameter.Name()] = value;
+                context.rawValues_.emplace(parameter.Name(), value->ToString());
+                context.values_.emplace(parameter.Name(), *value);
             }
         }
 
