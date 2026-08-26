@@ -22,12 +22,11 @@
     "dependencies": [
         {
             "name": "ESPressio-Observable",
-            "version": ">=3.0.2 <4.0.0",
-            "url": "https://github.com/ESPressio-Development-Platform/ESPressio-Observable.git"
+            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Observable.git#feature/16-rtti-free-observer-registry"
         },
         {
             "name": "ESPressio-Event",
-            "url": "https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#optimisation/55-event-registry-footprint",
+            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#feature/57-rtti-free-memory-efficiency",
             "platforms": "espressif32"
         }
     ]
