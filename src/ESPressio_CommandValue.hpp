@@ -69,6 +69,9 @@ public:
 
     bool IsNull() const noexcept { return std::holds_alternative<std::monostate>(value_); }
     const Storage& Value() const noexcept { return value_; }
+    const std::string* TryGetString() const noexcept {
+        return std::get_if<std::string>(&value_);
+    }
 
     std::string ToString() const {
         if (std::holds_alternative<std::string>(value_)) return std::get<std::string>(value_);
@@ -104,10 +107,13 @@ public:
                 throw std::invalid_argument("Expected boolean-compatible integer 0 or 1");
             }
             if (std::holds_alternative<std::string>(value_)) {
-                std::string value = std::get<std::string>(value_);
-                for (char& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
-                if (value == "true" || value == "1" || value == "yes" || value == "on" || value == "high") return true;
-                if (value == "false" || value == "0" || value == "no" || value == "off" || value == "low") return false;
+                const std::string& value = std::get<std::string>(value_);
+                if (EqualsIgnoreCase(value, "true") || value == "1" ||
+                    EqualsIgnoreCase(value, "yes") || EqualsIgnoreCase(value, "on") ||
+                    EqualsIgnoreCase(value, "high")) return true;
+                if (EqualsIgnoreCase(value, "false") || value == "0" ||
+                    EqualsIgnoreCase(value, "no") || EqualsIgnoreCase(value, "off") ||
+                    EqualsIgnoreCase(value, "low")) return false;
                 throw std::invalid_argument("Expected boolean value, got '" + value + "'");
             }
             throw std::invalid_argument("Command value cannot be converted to boolean");
@@ -160,6 +166,17 @@ public:
     }
 
 private:
+    static bool EqualsIgnoreCase(const std::string& value, const char* expected) noexcept {
+        if (expected == nullptr) return false;
+        std::size_t index = 0;
+        for (; index < value.size() && expected[index] != '\0'; ++index) {
+            const auto left = static_cast<unsigned char>(value[index]);
+            const auto right = static_cast<unsigned char>(expected[index]);
+            if (std::tolower(left) != std::tolower(right)) return false;
+        }
+        return index == value.size() && expected[index] == '\0';
+    }
+
     Storage value_;
 };
 
