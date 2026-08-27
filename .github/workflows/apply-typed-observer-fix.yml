@@ -1,0 +1,38 @@
+name: Apply typed observer fix
+
+on:
+  push:
+    branches:
+      - feature/30-async-command-routing
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/30-async-command-routing
+          fetch-depth: 0
+      - name: Apply narrow Command observer registration correction
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/ESPressio_Command.hpp')
+          text = path.read_text()
+          old = '        return observable_->RegisterObserver(observer);'
+          new = '        return observable_->RegisterObserverAs<ICommandRegistryObserver>(observer);'
+          if old not in text:
+              raise SystemExit('expected registration call not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+      - name: Commit correction
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/ESPressio_Command.hpp
+          git commit -m 'fix(#34): register Command observers with typed binding'
+          git push origin HEAD:feature/30-async-command-routing
