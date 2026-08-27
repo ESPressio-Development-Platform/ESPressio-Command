@@ -13,3 +13,18 @@
 - **#34** Moved `CommandResponseTimeoutRegistry`'s long-lived per-command timeout metadata to `ExternalPreferred` System storage.
 - **#34** Made JSON string-array serialization allocator-agnostic after coordinated CI exposed an assumption that aliases/choices used the default `std::allocator`.
 - **#34** Corrected `CommandRegistry::RegisterObserver()` to register the `ICommandRegistryObserver` typed binding required by the RTTI-free Observable notification path; coordinated host validation now exercises registration and unregistration callbacks.
+
+### Phase 11 ownership/copy audit (#35)
+
+- textual boolean conversion now performs case-insensitive comparison in place instead of copying and lowercasing the complete string;
+- `CommandContext::Raw()` borrows the invocation-owned string when the bound `CommandValue` is already a string, avoiding a second owned copy for the common string-argument path;
+- non-string raw values continue to own their formatted representation because the public `Raw()` API returns a stable `const std::string&`;
+- default-generated values remain context-owned because their temporary source would otherwise expire;
+- tokenizer tokens, command-node names, parameter names, aliases, callbacks and registration handles already transfer ownership with move semantics where appropriate;
+- completion results deliberately copy command names because the returned vector owns data independently of the registry;
+- invocation-by-const-reference and middleware paths deliberately retain caller-owned values rather than stealing them;
+- no asynchronous lifetime rule was weakened.
+
+Commits:
+- `1e5d746` — remove textual boolean lowercasing copy;
+- `1288882` — borrow invocation-owned string raw values.
