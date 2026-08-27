@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 
+#include <ESPressio_Memory.hpp>
+
 #include "ESPressio_CommandEnvelope.hpp"
 
 namespace ESPressio {
@@ -137,7 +139,10 @@ class CommandResponseTimeoutRegistry {
     };
 
     mutable std::mutex _mutex;
-    std::vector<Entry> _entries;
+    System::Memory::Vector<
+        Entry,
+        System::Memory::MemoryPolicy::ExternalPreferred
+    > _entries;
     uint32_t _transportDefaultMilliseconds = 100;
 
 public:
