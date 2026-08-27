@@ -10,3 +10,4 @@
 - **#34** Context bindings now reference invocation-owned `CommandValue`s rather than copying them; only default-generated values are owned by the context.
 - **#34** Reduced Levenshtein suggestion workspace from two vectors to one external-preferred row.
 - **#34** Preserved existing token move semantics and asynchronous routing lifetime rules.
+- **#34** Moved `CommandResponseTimeoutRegistry`'s long-lived per-command timeout metadata to `ExternalPreferred` System storage.
