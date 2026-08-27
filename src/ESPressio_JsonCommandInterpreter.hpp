@@ -229,8 +229,9 @@ private:
         return "unknown";
     }
 
+    template <typename StringContainer>
     static void WriteStringArray(
-        const std::vector<std::string>& values,
+        const StringContainer& values,
         ArduinoJson::JsonArray output
     ) {
         for (const auto& value : values) output.add(value);
