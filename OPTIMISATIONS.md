@@ -12,3 +12,4 @@
 - **#34** Preserved existing token move semantics and asynchronous routing lifetime rules.
 - **#34** Moved `CommandResponseTimeoutRegistry`'s long-lived per-command timeout metadata to `ExternalPreferred` System storage.
 - **#34** Made JSON string-array serialization allocator-agnostic after coordinated CI exposed an assumption that aliases/choices used the default `std::allocator`.
+- **#34** Corrected `CommandRegistry::RegisterObserver()` to register the `ICommandRegistryObserver` typed binding required by the RTTI-free Observable notification path; coordinated host validation now exercises registration and unregistration callbacks.
