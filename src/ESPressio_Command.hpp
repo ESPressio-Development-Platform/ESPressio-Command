@@ -82,7 +82,10 @@ public:
 
     const std::string& Raw(const std::string& name) const {
         const auto* binding = Find(name);
-        if (binding == nullptr) throw std::out_of_range("Unknown command parameter: " + name);
+        if (binding == nullptr || binding->Value == nullptr) {
+            throw std::out_of_range("Unknown command parameter: " + name);
+        }
+        if (const auto* value = binding->Value->TryGetString()) return *value;
         return binding->Raw;
     }
 
@@ -623,13 +626,15 @@ private:
                 context.bindings_.emplace_back();
                 auto& binding = context.bindings_.back();
                 binding.Name = &parameter.Name();
-                binding.Raw = value->ToString();
                 if (ownsDefault) {
                     binding.OwnedValue = std::move(defaultValue);
                     binding.OwnsValue = true;
                     binding.Value = &binding.OwnedValue;
                 } else {
                     binding.Value = value;
+                }
+                if (binding.Value->TryGetString() == nullptr) {
+                    binding.Raw = binding.Value->ToString();
                 }
             }
         }
