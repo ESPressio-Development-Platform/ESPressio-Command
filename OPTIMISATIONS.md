@@ -11,3 +11,4 @@
 - **#34** Reduced Levenshtein suggestion workspace from two vectors to one external-preferred row.
 - **#34** Preserved existing token move semantics and asynchronous routing lifetime rules.
 - **#34** Moved `CommandResponseTimeoutRegistry`'s long-lived per-command timeout metadata to `ExternalPreferred` System storage.
+- **#34** Made JSON string-array serialization allocator-agnostic after coordinated CI exposed an assumption that aliases/choices used the default `std::allocator`.
