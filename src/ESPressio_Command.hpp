@@ -396,7 +396,7 @@ public:
     }
 
     Observable::ObserverHandlePtr RegisterObserver(ICommandRegistryObserver* observer) {
-        return observable_->RegisterObserver(observer);
+        return observable_->RegisterObserverAs<ICommandRegistryObserver>(observer);
     }
     void UnregisterObserver(ICommandRegistryObserver* observer) { observable_->UnregisterObserver(observer); }
 
