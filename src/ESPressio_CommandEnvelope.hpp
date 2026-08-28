@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <string_view>
 
 namespace ESPressio {
 namespace Command {
@@ -109,8 +110,8 @@ struct CommandRequestEnvelope {
         return true;
     }
 
-    /// <summary>Stores raw command text from a string.</summary>
-    bool SetRaw(const std::string& value) {
+    /// <summary>Stores raw command text from any contiguous character string view.</summary>
+    bool SetRaw(std::string_view value) {
         return SetRaw(value.data(), value.size());
     }
 
