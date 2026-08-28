@@ -16,6 +16,7 @@
 namespace ESPressio {
 namespace Command {
 
+/// <summary>Identifies the outcome of registering or completing a pending command request.</summary>
 enum class CommandPendingStatus : uint8_t {
     Success,
     DuplicateRequestId,
@@ -23,21 +24,31 @@ enum class CommandPendingStatus : uint8_t {
     NotFound
 };
 
+/// <summary>Tracks correlation, destination, timeout, and response progress for one pending command request.</summary>
 struct CommandPendingRequest {
+    /// <summary>Indicates whether this pool entry currently represents a pending request.</summary>
     bool Active = false;
+    /// <summary>Correlation identifier of the pending request.</summary>
     CommandRequestId RequestId = 0;
+    /// <summary>Endpoint to which the eventual response is directed.</summary>
     CommandOriginAddress Destination{};
+    /// <summary>Absolute timeout deadline in milliseconds.</summary>
     uint64_t DeadlineMilliseconds = 0;
+    /// <summary>Whether one or multiple responses may complete the request.</summary>
     CommandResponseMode ResponseMode = CommandResponseMode::Single;
+    /// <summary>Number of responses observed so far.</summary>
     uint16_t ResponseCount = 0;
 };
 
+/// <summary>Fixed-capacity, thread-safe pool of pending asynchronous command requests.</summary>
+/// <typeparam name="Capacity">Maximum number of concurrently pending requests.</typeparam>
 template <size_t Capacity = 16>
 class CommandPendingRequestPool {
     std::array<CommandPendingRequest, Capacity> _entries{};
     mutable std::mutex _mutex;
 
 public:
+    /// <summary>Adds a request to the pending pool when its ID is unique and capacity is available.</summary>
     CommandPendingStatus Add(
         CommandRequestId requestId,
         const CommandOriginAddress& destination,
@@ -69,6 +80,7 @@ public:
         return CommandPendingStatus::Success;
     }
 
+    /// <summary>Records a response for a pending request and releases it when the response is final.</summary>
     CommandPendingStatus Complete(
         CommandRequestId requestId,
         bool finalResponse = true
@@ -91,6 +103,9 @@ public:
         return CommandPendingStatus::NotFound;
     }
 
+    /// <summary>Removes requests whose deadlines have elapsed and invokes a callback for each expired entry.</summary>
+    /// <typeparam name="Callback">Callable receiving each expired <c>CommandPendingRequest</c>.</typeparam>
+    /// <returns>The number of expired requests.</returns>
     template <typename Callback>
     size_t Expire(
         uint64_t nowMilliseconds,
@@ -120,6 +135,7 @@ public:
         return expiredCount;
     }
 
+    /// <summary>Gets the number of requests currently awaiting responses.</summary>
     size_t ActiveCount() const {
         std::lock_guard<std::mutex> lock(_mutex);
         size_t count = 0;
@@ -132,6 +148,7 @@ public:
     }
 };
 
+/// <summary>Resolves command-response timeouts from instance overrides, command defaults, and a transport default.</summary>
 class CommandResponseTimeoutRegistry {
     struct Entry {
         std::string Path;
@@ -146,11 +163,13 @@ class CommandResponseTimeoutRegistry {
     uint32_t _transportDefaultMilliseconds = 100;
 
 public:
+    /// <summary>Sets the fallback response timeout used when no command or instance override exists.</summary>
     void SetTransportDefault(uint32_t milliseconds) {
         std::lock_guard<std::mutex> lock(_mutex);
         _transportDefaultMilliseconds = milliseconds;
     }
 
+    /// <summary>Sets or replaces the default response timeout associated with a command path.</summary>
     void SetCommandDefault(
         std::string path,
         uint32_t milliseconds
@@ -165,6 +184,7 @@ public:
         _entries.push_back({std::move(path), milliseconds});
     }
 
+    /// <summary>Resolves the effective timeout using instance override, command default, then transport default precedence.</summary>
     uint32_t Resolve(
         const std::string& path,
         uint32_t instanceOverrideMilliseconds = 0

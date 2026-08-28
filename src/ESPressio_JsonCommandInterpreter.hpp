@@ -13,12 +13,19 @@
 
 namespace ESPressio::Command {
 
+/// <summary>Parses, invokes, and describes ESPressio commands using a JSON representation.</summary>
 class JsonCommandInterpreter {
 public:
+    /// <summary>Creates a JSON command interpreter backed by the supplied registry.</summary>
     explicit JsonCommandInterpreter(
         CommandRegistry& registry = CommandRegistry::GetInstance()
     ) : registry_(registry) {}
 
+    /// <summary>Parses a JSON command object into a structured command invocation.</summary>
+    /// <param name="json">JSON command document to parse.</param>
+    /// <param name="invocation">Receives the parsed command path and scalar arguments.</param>
+    /// <param name="error">Optional destination for a human-readable parse error.</param>
+    /// <returns><c>true</c> when the JSON command is valid.</returns>
     bool Parse(
         const std::string& json,
         CommandInvocation& invocation,
@@ -121,6 +128,7 @@ public:
         return true;
     }
 
+    /// <summary>Parses and synchronously invokes one JSON command document.</summary>
     CommandResult Invoke(const std::string& json) const {
         CommandInvocation invocation;
         std::string error;
@@ -130,10 +138,12 @@ public:
         return registry_.Invoke(invocation);
     }
 
+    /// <summary>Invokes a JSON command and serializes its <c>CommandResult</c> as JSON.</summary>
     std::string InvokeToJson(const std::string& json) const {
         return SerializeResult(Invoke(json));
     }
 
+    /// <summary>Serializes a command result into a JSON object containing success, code, and message fields.</summary>
     static std::string SerializeResult(const CommandResult& result) {
         ArduinoJson::JsonDocument document;
         document["success"] = result.success;
@@ -144,6 +154,9 @@ public:
         return output;
     }
 
+    /// <summary>Returns a JSON description of the registry root or a selected command path.</summary>
+    /// <param name="path">Optional command path to describe; an empty path describes top-level commands.</param>
+    /// <param name="includeHidden">Whether hidden commands should be included.</param>
     std::string Describe(
         const std::vector<std::string>& path = {},
         bool includeHidden = false
@@ -179,7 +192,9 @@ public:
         return output;
     }
 
+    /// <summary>Gets the mutable command registry used by this interpreter.</summary>
     CommandRegistry& Registry() noexcept { return registry_; }
+    /// <summary>Gets the command registry used by this interpreter.</summary>
     const CommandRegistry& Registry() const noexcept { return registry_; }
 
 private:

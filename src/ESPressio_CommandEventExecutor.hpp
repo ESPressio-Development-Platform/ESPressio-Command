@@ -19,6 +19,7 @@
 namespace ESPressio {
 namespace Command {
 
+/// <summary>Singleton EventThread that executes inbound command events outside the originating transport context.</summary>
 class CommandEventExecutor final : public Event::EventThread {
     Event::EventListenerHandlePtr _inboundHandle;
     CommandRegistry* _registry = nullptr;
@@ -69,11 +70,14 @@ public:
     CommandEventExecutor(const CommandEventExecutor&) = delete;
     CommandEventExecutor& operator=(const CommandEventExecutor&) = delete;
 
+    /// <summary>Gets the process-wide inbound command event executor.</summary>
     static CommandEventExecutor& GetInstance() {
         static CommandEventExecutor instance;
         return instance;
     }
 
+    /// <summary>Registers the inbound-command event listener against the supplied command registry.</summary>
+    /// <returns><c>true</c> when the executor is prepared to receive inbound command events.</returns>
     bool Prepare(
         CommandRegistry& registry = CommandRegistry::GetInstance()
     ) {
@@ -98,6 +102,7 @@ public:
         return _prepared;
     }
 
+    /// <summary>Detaches the inbound listener, clears the registry binding, and shuts down the executor thread.</summary>
     void ShutdownExecutor() {
         _inboundHandle.reset();
         _prepared = false;
@@ -105,6 +110,7 @@ public:
         Shutdown();
     }
 
+    /// <summary>Indicates whether the executor has an active inbound-command listener.</summary>
     bool IsPrepared() const {
         return _prepared;
     }
