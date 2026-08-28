@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cerrno>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -272,12 +273,22 @@ private:
     template<typename TInteger>
     static CommandString FormatInteger(TInteger value) {
         char buffer[32]{};
-        const int written = std::snprintf(
-            buffer,
-            sizeof(buffer),
-            std::is_signed_v<TInteger> ? "%lld" : "%llu",
-            static_cast<unsigned long long>(value)
-        );
+        int written = 0;
+        if constexpr (std::is_signed_v<TInteger>) {
+            written = std::snprintf(
+                buffer,
+                sizeof(buffer),
+                "%lld",
+                static_cast<long long>(value)
+            );
+        } else {
+            written = std::snprintf(
+                buffer,
+                sizeof(buffer),
+                "%llu",
+                static_cast<unsigned long long>(value)
+            );
+        }
         return written > 0
             ? CommandString(buffer, static_cast<std::size_t>(written))
             : CommandString{};
