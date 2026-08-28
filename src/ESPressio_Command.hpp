@@ -23,22 +23,30 @@
 
 namespace ESPressio::Command {
 
+/// <summary>Memory policy used for dynamic command-registry storage.</summary>
 static constexpr auto CommandExternalMemoryPolicy =
     System::Memory::MemoryPolicy::ExternalPreferred;
 
+/// <summary>Vector alias used by command infrastructure for externally-preferred dynamic storage.</summary>
 template<typename T>
 using CommandExternalVector =
     System::Memory::Vector<T, System::Memory::MemoryPolicy::ExternalPreferred>;
 
+/// <summary>Result returned by command callbacks and registry invocation.</summary>
 struct CommandResult {
+    /// <summary>Indicates whether the command completed successfully.</summary>
     bool success{true};
+    /// <summary>Application-defined result code; zero represents success by convention.</summary>
     int code{0};
+    /// <summary>Optional human-readable result or diagnostic message.</summary>
     std::string message;
 
+    /// <summary>Creates a successful command result.</summary>
     static CommandResult Ok(std::string message = {}) {
         return {true, 0, std::move(message)};
     }
 
+    /// <summary>Creates a failed command result.</summary>
     static CommandResult Error(std::string message, int code = 1) {
         return {false, code, std::move(message)};
     }
@@ -48,13 +56,20 @@ class CommandParameter;
 class CommandRegistry;
 class CommandRegistrationHandle;
 
+/// <summary>Transport-neutral, already-parsed command invocation supplied to the registry.</summary>
 struct CommandInvocation {
+    /// <summary>Resolved command path tokens.</summary>
     std::vector<std::string> path;
+    /// <summary>Positional argument values in source order.</summary>
     std::vector<CommandValue> positional;
+    /// <summary>Named argument values keyed by parameter name or alias.</summary>
     std::map<std::string, CommandValue> named;
+    /// <summary>Original unparsed command text when available.</summary>
     std::string raw;
 };
 
+/// <summary>Validated parameter bindings exposed to an executing command callback.</summary>
+/// <remarks>The context is valid only for the duration of the associated command invocation.</remarks>
 class CommandContext {
 private:
     struct Binding {
@@ -78,8 +93,11 @@ private:
     }
 
 public:
+    /// <summary>Indicates whether a parameter binding exists for the requested name.</summary>
     bool Has(const std::string& name) const { return Find(name) != nullptr; }
 
+    /// <summary>Returns the raw textual representation of a bound parameter.</summary>
+    /// <exception cref="std::out_of_range">Thrown when the parameter is unknown.</exception>
     const std::string& Raw(const std::string& name) const {
         const auto* binding = Find(name);
         if (binding == nullptr || binding->Value == nullptr) {
@@ -89,6 +107,8 @@ public:
         return binding->Raw;
     }
 
+    /// <summary>Returns the typed command value associated with a parameter.</summary>
+    /// <exception cref="std::out_of_range">Thrown when the parameter is unknown.</exception>
     const CommandValue& Value(const std::string& name) const {
         const auto* binding = Find(name);
         if (binding == nullptr || binding->Value == nullptr) {
@@ -97,14 +117,17 @@ public:
         return *binding->Value;
     }
 
+    /// <summary>Returns the complete invocation that produced this context.</summary>
     const CommandInvocation& Invocation() const { return *invocation_; }
 
+    /// <summary>Converts a bound parameter to the requested C++ type.</summary>
     template<typename T>
     T Get(const std::string& name) const {
         return Value(name).template As<T>();
     }
 };
 
+/// <summary>Validation and conversion category assigned to a command parameter.</summary>
 enum class ParameterKind {
     String,
     Boolean,
@@ -114,30 +137,41 @@ enum class ParameterKind {
     Enumeration
 };
 
+/// <summary>Describes one command parameter, including validation, aliases, defaults, ranges, and choices.</summary>
 class CommandParameter {
 public:
     using StringList = CommandExternalVector<std::string>;
 
+    /// <summary>Creates a parameter descriptor with the supplied name and conversion kind.</summary>
     CommandParameter(std::string name, ParameterKind kind = ParameterKind::String)
         : name_(std::move(name)), kind_(kind) {}
 
+    /// <summary>Sets human-readable parameter documentation.</summary>
     CommandParameter& Description(std::string value) { description_ = std::move(value); return *this; }
+    /// <summary>Sets whether the parameter is required.</summary>
     CommandParameter& Required(bool value = true) { required_ = value; return *this; }
+    /// <summary>Marks the parameter optional.</summary>
     CommandParameter& Optional() { required_ = false; return *this; }
+    /// <summary>Assigns a textual default value and marks the parameter optional.</summary>
     CommandParameter& Default(std::string value) {
         default_ = std::move(value); hasDefault_ = true; required_ = false; return *this;
     }
+    /// <summary>Adds an alternate name accepted for named invocation.</summary>
     CommandParameter& Alias(std::string value) { aliases_.push_back(std::move(value)); return *this; }
+    /// <summary>Controls whether the parameter may only be supplied by name.</summary>
     CommandParameter& NamedOnly(bool value = true) { namedOnly_ = value; return *this; }
+    /// <summary>Constrains numeric values to an inclusive range.</summary>
     CommandParameter& Range(long double minimum, long double maximum) {
         hasRange_ = true; minimum_ = minimum; maximum_ = maximum; return *this;
     }
+    /// <summary>Restricts accepted textual values to the supplied set.</summary>
     CommandParameter& OneOf(std::vector<std::string> values) {
         choices_.clear();
         choices_.reserve(values.size());
         for (auto& value : values) choices_.push_back(std::move(value));
         return *this;
     }
+    /// <summary>Installs additional textual validation and its failure message.</summary>
     CommandParameter& Validator(
         std::function<bool(const std::string&)> validator,
         std::string message = "Validation failed"
@@ -147,23 +181,38 @@ public:
         return *this;
     }
 
+    /// <summary>Returns the canonical parameter name.</summary>
     const std::string& Name() const { return name_; }
+    /// <summary>Returns the parameter description.</summary>
     const std::string& DescriptionText() const { return description_; }
+    /// <summary>Indicates whether a value must be supplied.</summary>
     bool IsRequired() const { return required_; }
+    /// <summary>Indicates whether the value may only be supplied using a named argument.</summary>
     bool IsNamedOnly() const { return namedOnly_; }
+    /// <summary>Indicates whether a default value is configured.</summary>
     bool HasDefault() const { return hasDefault_; }
+    /// <summary>Returns the configured textual default value.</summary>
     const std::string& DefaultValue() const { return default_; }
+    /// <summary>Returns the parameter conversion/validation kind.</summary>
     ParameterKind Kind() const { return kind_; }
+    /// <summary>Returns accepted aliases.</summary>
     const StringList& Aliases() const { return aliases_; }
+    /// <summary>Returns configured enumerated choices.</summary>
     const StringList& Choices() const { return choices_; }
+    /// <summary>Indicates whether an inclusive numeric range is configured.</summary>
     bool HasRange() const { return hasRange_; }
+    /// <summary>Returns the configured numeric minimum.</summary>
     long double Minimum() const { return minimum_; }
+    /// <summary>Returns the configured numeric maximum.</summary>
     long double Maximum() const { return maximum_; }
 
+    /// <summary>Indicates whether a name matches the canonical name or any alias.</summary>
     bool Matches(const std::string& key) const {
         return key == name_ || std::find(aliases_.begin(), aliases_.end(), key) != aliases_.end();
     }
 
+    /// <summary>Validates a typed command value against this descriptor.</summary>
+    /// <returns>An empty string when valid; otherwise a human-readable validation error.</returns>
     std::string Validate(const CommandValue& value) const {
         try {
             switch (kind_) {
@@ -206,6 +255,7 @@ public:
         return {};
     }
 
+    /// <summary>Validates a textual value against this descriptor.</summary>
     std::string Validate(const std::string& value) const { return Validate(CommandValue(value)); }
 
 private:
@@ -225,6 +275,8 @@ private:
     std::function<bool(const std::string&)> validator_;
 };
 
+/// <summary>One node in the hierarchical command tree.</summary>
+/// <remarks>Child nodes are owned by their parent. Command nodes use the ESPressio external-preferred memory policy.</remarks>
 class CommandNode {
 public:
     using Callback = std::function<CommandResult(const CommandContext&)>;
@@ -243,28 +295,39 @@ public:
             System::Memory::MemoryPolicy::ExternalPreferred);
     }
 
+    /// <summary>Creates a command node with the supplied canonical name.</summary>
     explicit CommandNode(std::string name = {}) : name_(std::move(name)) {}
+    /// <summary>Sets human-readable command documentation.</summary>
     CommandNode& Description(std::string value) { description_ = std::move(value); return *this; }
+    /// <summary>Adds an alternate command name.</summary>
     CommandNode& Alias(std::string value) { aliases_.push_back(std::move(value)); return *this; }
+    /// <summary>Controls whether the command is omitted from help and completion output.</summary>
     CommandNode& Hidden(bool value = true) { hidden_ = value; return *this; }
+    /// <summary>Marks the command deprecated and optionally supplies a warning message.</summary>
     CommandNode& Deprecated(std::string message = {}) {
         deprecated_ = true; deprecationMessage_ = std::move(message); return *this;
     }
+    /// <summary>Sets the primary execution callback.</summary>
     CommandNode& OnExecute(Callback callback) { callback_ = std::move(callback); return *this; }
+    /// <summary>Adds a callback executed before the primary command callback.</summary>
     CommandNode& Before(Callback callback) { before_.push_back(std::move(callback)); return *this; }
+    /// <summary>Adds a callback executed after a successful or failed primary callback.</summary>
     CommandNode& After(Callback callback) { after_.push_back(std::move(callback)); return *this; }
 
+    /// <summary>Finds or creates a child command with the supplied name.</summary>
     CommandNode& Command(std::string name) {
         for (auto& child : children_) if (child->Matches(name)) return *child;
         children_.push_back(std::unique_ptr<CommandNode>(new CommandNode(std::move(name))));
         return *children_.back();
     }
 
+    /// <summary>Adds a parameter descriptor to this command.</summary>
     CommandParameter& Parameter(std::string name, ParameterKind kind = ParameterKind::String) {
         parameters_.emplace_back(std::move(name), kind);
         return parameters_.back();
     }
 
+    /// <summary>Adds a parameter whose conversion kind is inferred from its C++ type.</summary>
     template<typename T>
     CommandParameter& Parameter(std::string name) {
         if constexpr (std::is_same_v<T, bool>) return Parameter(std::move(name), ParameterKind::Boolean);
@@ -274,6 +337,7 @@ public:
         else return Parameter(std::move(name), ParameterKind::String);
     }
 
+    /// <summary>Removes a matching direct child command.</summary>
     bool RemoveCommand(const std::string& name) {
         const auto iterator = std::find_if(children_.begin(), children_.end(),
             [&](const auto& child) { return child->Matches(name); });
@@ -282,18 +346,28 @@ public:
         return true;
     }
 
+    /// <summary>Indicates whether a token matches this node's name or an alias.</summary>
     bool Matches(const std::string& value) const {
         return value == name_ || std::find(aliases_.begin(), aliases_.end(), value) != aliases_.end();
     }
 
+    /// <summary>Returns the canonical command name.</summary>
     const std::string& Name() const { return name_; }
+    /// <summary>Returns the command description.</summary>
     const std::string& DescriptionText() const { return description_; }
+    /// <summary>Returns accepted command aliases.</summary>
     const StringList& Aliases() const { return aliases_; }
+    /// <summary>Returns direct child commands.</summary>
     const ChildStorage& Children() const { return children_; }
+    /// <summary>Returns parameter descriptors in binding order.</summary>
     const ParameterStorage& Parameters() const { return parameters_; }
+    /// <summary>Indicates whether the command is hidden from discovery output.</summary>
     bool IsHidden() const { return hidden_; }
+    /// <summary>Indicates whether the command is marked deprecated.</summary>
     bool IsDeprecated() const { return deprecated_; }
+    /// <summary>Returns the optional deprecation message.</summary>
     const std::string& DeprecationMessage() const { return deprecationMessage_; }
+    /// <summary>Indicates whether a primary execution callback is configured.</summary>
     bool IsExecutable() const { return static_cast<bool>(callback_); }
 
 private:
@@ -311,8 +385,13 @@ private:
     CallbackStorage after_;
 };
 
+/// <summary>Tokenizes shell-like command text with quoting and backslash escaping.</summary>
 class TextCommandParser {
 public:
+    /// <summary>Splits command text into tokens.</summary>
+    /// <param name="input">Raw command text.</param>
+    /// <param name="error">Optional destination for a parse error.</param>
+    /// <returns>Parsed tokens, or an empty vector when parsing fails.</returns>
     static std::vector<std::string> Tokenize(const std::string& input, std::string* error = nullptr) {
         std::vector<std::string> output;
         std::string current;
@@ -336,9 +415,12 @@ public:
     }
 };
 
+/// <summary>Move-only RAII handle for a registered top-level command.</summary>
+/// <remarks>Destroying or resetting an active handle unregisters its command path.</remarks>
 class CommandRegistrationHandle {
 public:
     CommandRegistrationHandle() = default;
+    /// <summary>Creates an active registration handle for the supplied registry/path pair.</summary>
     CommandRegistrationHandle(CommandRegistry* registry, std::vector<std::string> path)
         : registry_(registry), path_(std::move(path)) {}
     CommandRegistrationHandle(const CommandRegistrationHandle&) = delete;
@@ -352,14 +434,18 @@ public:
         return *this;
     }
     ~CommandRegistrationHandle() { Reset(); }
+    /// <summary>Unregisters the associated command and makes this handle inactive.</summary>
     void Reset();
+    /// <summary>Indicates whether this handle currently owns a registration.</summary>
     bool Active() const noexcept { return registry_ != nullptr; }
+    /// <summary>Returns the registered command path.</summary>
     const std::vector<std::string>& Path() const noexcept { return path_; }
 private:
     CommandRegistry* registry_{nullptr};
     std::vector<std::string> path_;
 };
 
+/// <summary>Owns a hierarchical command tree and performs parsing, binding, validation, middleware execution, invocation, help, and completion.</summary>
 class CommandRegistry {
 private:
     class RegistryObservable final : public Observable::Observable {
@@ -380,12 +466,14 @@ private:
     };
 
 public:
+    /// <summary>Middleware callback capable of observing an invocation and deciding whether/when to invoke the next stage.</summary>
     using Middleware = std::function<CommandResult(
         const CommandInvocation&,
         const std::function<CommandResult()>&
     )>;
     using MiddlewareStorage = CommandExternalVector<Middleware>;
 
+    /// <summary>Creates an empty command registry.</summary>
     CommandRegistry()
         : root_(""),
           observable_(System::Memory::MakeShared<
@@ -393,16 +481,20 @@ public:
               System::Memory::MemoryPolicy::ExternalPreferred
           >()) {}
 
+    /// <summary>Returns the process-wide default command registry.</summary>
     static CommandRegistry& GetInstance() {
         static CommandRegistry instance;
         return instance;
     }
 
+    /// <summary>Registers an observer for top-level command registration changes.</summary>
     Observable::ObserverHandlePtr RegisterObserver(ICommandRegistryObserver* observer) {
         return observable_->RegisterObserverAs<ICommandRegistryObserver>(observer);
     }
+    /// <summary>Unregisters a command-registry observer.</summary>
     void UnregisterObserver(ICommandRegistryObserver* observer) { observable_->UnregisterObserver(observer); }
 
+    /// <summary>Finds or creates a top-level command node.</summary>
     CommandNode& Command(std::string name) {
         const bool existed = std::any_of(root_.children_.begin(), root_.children_.end(),
             [&](const auto& child) { return child->Matches(name); });
@@ -411,6 +503,8 @@ public:
         return result;
     }
 
+    /// <summary>Registers a new top-level command and returns a move-only RAII handle.</summary>
+    /// <returns>An inactive handle when the name is empty or already registered.</returns>
     CommandRegistrationHandle RegisterCommand(std::string name) {
         if (name.empty()) return {};
         for (const auto& child : root_.children_) if (child->Matches(name)) return {};
@@ -420,6 +514,7 @@ public:
         return CommandRegistrationHandle(this, std::move(path));
     }
 
+    /// <summary>Removes the command at an exact hierarchical path.</summary>
     bool UnregisterCommand(const std::vector<std::string>& path) {
         if (path.empty()) return false;
         CommandNode* node = &root_;
@@ -436,8 +531,10 @@ public:
         return removed;
     }
 
+    /// <summary>Appends middleware to the invocation pipeline.</summary>
     CommandRegistry& Use(Middleware middleware) { middleware_.push_back(std::move(middleware)); return *this; }
 
+    /// <summary>Parses and invokes a raw textual command line.</summary>
     CommandResult Invoke(const std::string& input) const {
         std::string parseError;
         auto tokens = TextCommandParser::Tokenize(input, &parseError);
@@ -450,6 +547,7 @@ public:
         return InvokeTokens(std::move(tokens), input);
     }
 
+    /// <summary>Invokes an already-parsed transport-neutral command invocation.</summary>
     CommandResult Invoke(const CommandInvocation& invocation) const {
         if (invocation.path.empty()) return CommandResult::Error("No command path supplied");
         const CommandNode* node = Resolve(invocation.path);
@@ -457,6 +555,7 @@ public:
         return InvokeResolved(*node, invocation);
     }
 
+    /// <summary>Returns visible child-command completions matching the current textual input.</summary>
     std::vector<std::string> Complete(const std::string& input) const {
         std::string error;
         auto tokens = TextCommandParser::Tokenize(input, &error);
@@ -477,6 +576,7 @@ public:
         return result;
     }
 
+    /// <summary>Builds human-readable help for the root or a specific command path.</summary>
     std::string Help(const std::vector<std::string>& path = {}) const {
         const CommandNode* node = &root_;
         std::string full;
@@ -521,6 +621,8 @@ public:
         return stream.str();
     }
 
+    /// <summary>Resolves an exact command path without invoking it.</summary>
+    /// <returns>The matching node, or <c>nullptr</c> when any path token is unknown.</returns>
     const CommandNode* Resolve(const std::vector<std::string>& path) const {
         const CommandNode* node = &root_;
         for (const auto& token : path) {
@@ -530,6 +632,7 @@ public:
         return node;
     }
 
+    /// <summary>Returns the immutable synthetic root command node.</summary>
     const CommandNode& Root() const { return root_; }
 
 private:
