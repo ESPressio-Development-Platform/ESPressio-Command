@@ -17,10 +17,34 @@
 
 namespace ESPressio::Command {
 
-/// <summary>System-backed command text using the external-preferred memory policy.</summary>
-using CommandString = System::Memory::String<
+/// <summary>Underlying System-backed storage for command text using the external-preferred memory policy.</summary>
+using CommandStringStorage = System::Memory::String<
     System::Memory::MemoryPolicy::ExternalPreferred
 >;
+
+/// <summary>System-backed command text with source-compatible standard-string boundaries.</summary>
+/// <remarks>Dynamic storage remains governed by the ESPressio System external-preferred memory policy. Standard-string conversion is provided only for interoperability with existing transport and application boundaries.</remarks>
+class CommandString : public CommandStringStorage {
+public:
+    using Base = CommandStringStorage;
+    using Base::Base;
+    using Base::operator=;
+
+    CommandString() = default;
+    CommandString(const Base& value) : Base(value) {}
+    CommandString(Base&& value) noexcept : Base(std::move(value)) {}
+    CommandString(const std::string& value) : Base(value.begin(), value.end()) {}
+
+    CommandString& operator=(const std::string& value) {
+        this->assign(value.begin(), value.end());
+        return *this;
+    }
+
+    /// <summary>Copies this System-backed text into a standard-library string at an explicit interoperability boundary.</summary>
+    operator std::string() const {
+        return std::string(this->data(), this->size());
+    }
+};
 
 /// <summary>Represents a command scalar value as null, text, boolean, signed or unsigned integer, or floating-point data.</summary>
 class CommandValue {
@@ -56,7 +80,7 @@ public:
     CommandValue(CommandString value) : value_(std::move(value)) {}
     /// <summary>Creates a string command value from standard-library text.</summary>
     CommandValue(const std::string& value)
-        : value_(CommandString(value.begin(), value.end())) {}
+        : value_(CommandString(value)) {}
     /// <summary>Creates a boolean command value.</summary>
     CommandValue(bool value) : value_(value) {}
 
@@ -96,7 +120,7 @@ public:
     }
     /// <summary>Assigns a string command value copied from standard-library text.</summary>
     CommandValue& operator=(const std::string& value) {
-        value_ = CommandString(value.begin(), value.end());
+        value_ = CommandString(value);
         return *this;
     }
     /// <summary>Assigns a boolean command value.</summary>
@@ -202,8 +226,7 @@ public:
             return ToString();
         } else if constexpr (std::is_same_v<Target, std::string>) {
             if (IsNull()) throw std::invalid_argument("Null command value cannot be converted to string");
-            const auto text = ToString();
-            return std::string(text.begin(), text.end());
+            return static_cast<std::string>(ToString());
         } else if constexpr (std::is_same_v<Target, bool>) {
             if (std::holds_alternative<bool>(value_)) return std::get<bool>(value_);
             if (std::holds_alternative<int64_t>(value_)) {
