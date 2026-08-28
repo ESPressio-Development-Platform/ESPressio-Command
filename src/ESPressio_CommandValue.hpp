@@ -1,18 +1,26 @@
 #pragma once
 
+#include <cerrno>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
-#include <iomanip>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <variant>
 
+#include <ESPressio_Memory.hpp>
+
 namespace ESPressio::Command {
+
+/// <summary>System-backed command text using the external-preferred memory policy.</summary>
+using CommandString = System::Memory::String<
+    System::Memory::MemoryPolicy::ExternalPreferred
+>;
 
 /// <summary>Represents a command scalar value as null, text, boolean, signed or unsigned integer, or floating-point data.</summary>
 class CommandValue {
@@ -27,52 +35,103 @@ public:
         FloatingPoint
     };
 
-    /// <summary>Variant storage used to retain the command scalar value.</summary>
-    using Storage = std::variant<std::monostate, std::string, bool, int64_t, uint64_t, double>;
+    /// <summary>Variant storage used to retain the command scalar value, with textual storage routed through ESPressio System memory policy.</summary>
+    using Storage = std::variant<
+        std::monostate,
+        CommandString,
+        bool,
+        int64_t,
+        uint64_t,
+        double
+    >;
 
     /// <summary>Creates a null command value.</summary>
     CommandValue() = default;
     /// <summary>Creates a null command value.</summary>
     CommandValue(std::nullptr_t) : value_(std::monostate{}) {}
     /// <summary>Creates a string command value from null-terminated text; null pointers become an empty string.</summary>
-    CommandValue(const char* value) : value_(std::string(value == nullptr ? "" : value)) {}
-    /// <summary>Creates a string command value.</summary>
-    CommandValue(std::string value) : value_(std::move(value)) {}
+    CommandValue(const char* value)
+        : value_(CommandString(value == nullptr ? "" : value)) {}
+    /// <summary>Creates a string command value from System-backed command text.</summary>
+    CommandValue(CommandString value) : value_(std::move(value)) {}
+    /// <summary>Creates a string command value from standard-library text.</summary>
+    CommandValue(const std::string& value)
+        : value_(CommandString(value.begin(), value.end())) {}
     /// <summary>Creates a boolean command value.</summary>
     CommandValue(bool value) : value_(value) {}
 
     /// <summary>Creates a signed-integer command value.</summary>
-    template<typename T, typename std::enable_if_t<std::is_integral_v<std::decay_t<T>> && !std::is_same_v<std::decay_t<T>, bool> && std::is_signed_v<std::decay_t<T>>, int> = 0>
+    template<typename T, typename std::enable_if_t<
+        std::is_integral_v<std::decay_t<T>> &&
+        !std::is_same_v<std::decay_t<T>, bool> &&
+        std::is_signed_v<std::decay_t<T>>, int> = 0>
     CommandValue(T value) : value_(static_cast<int64_t>(value)) {}
 
     /// <summary>Creates an unsigned-integer command value.</summary>
-    template<typename T, typename std::enable_if_t<std::is_integral_v<std::decay_t<T>> && !std::is_same_v<std::decay_t<T>, bool> && std::is_unsigned_v<std::decay_t<T>>, int> = 0>
+    template<typename T, typename std::enable_if_t<
+        std::is_integral_v<std::decay_t<T>> &&
+        !std::is_same_v<std::decay_t<T>, bool> &&
+        std::is_unsigned_v<std::decay_t<T>>, int> = 0>
     CommandValue(T value) : value_(static_cast<uint64_t>(value)) {}
 
     /// <summary>Creates a floating-point command value.</summary>
-    template<typename T, typename std::enable_if_t<std::is_floating_point_v<std::decay_t<T>>, int> = 0>
+    template<typename T, typename std::enable_if_t<
+        std::is_floating_point_v<std::decay_t<T>>, int> = 0>
     CommandValue(T value) : value_(static_cast<double>(value)) {}
 
     /// <summary>Assigns the null command value.</summary>
-    CommandValue& operator=(std::nullptr_t) { value_ = std::monostate{}; return *this; }
+    CommandValue& operator=(std::nullptr_t) {
+        value_ = std::monostate{};
+        return *this;
+    }
     /// <summary>Assigns a string command value; null pointers become an empty string.</summary>
-    CommandValue& operator=(const char* value) { value_ = std::string(value == nullptr ? "" : value); return *this; }
-    /// <summary>Assigns a string command value.</summary>
-    CommandValue& operator=(std::string value) { value_ = std::move(value); return *this; }
+    CommandValue& operator=(const char* value) {
+        value_ = CommandString(value == nullptr ? "" : value);
+        return *this;
+    }
+    /// <summary>Assigns System-backed command text without an intermediate standard-library string.</summary>
+    CommandValue& operator=(CommandString value) {
+        value_ = std::move(value);
+        return *this;
+    }
+    /// <summary>Assigns a string command value copied from standard-library text.</summary>
+    CommandValue& operator=(const std::string& value) {
+        value_ = CommandString(value.begin(), value.end());
+        return *this;
+    }
     /// <summary>Assigns a boolean command value.</summary>
-    CommandValue& operator=(bool value) { value_ = value; return *this; }
+    CommandValue& operator=(bool value) {
+        value_ = value;
+        return *this;
+    }
 
     /// <summary>Assigns a signed-integer command value.</summary>
-    template<typename T, typename std::enable_if_t<std::is_integral_v<std::decay_t<T>> && !std::is_same_v<std::decay_t<T>, bool> && std::is_signed_v<std::decay_t<T>>, int> = 0>
-    CommandValue& operator=(T value) { value_ = static_cast<int64_t>(value); return *this; }
+    template<typename T, typename std::enable_if_t<
+        std::is_integral_v<std::decay_t<T>> &&
+        !std::is_same_v<std::decay_t<T>, bool> &&
+        std::is_signed_v<std::decay_t<T>>, int> = 0>
+    CommandValue& operator=(T value) {
+        value_ = static_cast<int64_t>(value);
+        return *this;
+    }
 
     /// <summary>Assigns an unsigned-integer command value.</summary>
-    template<typename T, typename std::enable_if_t<std::is_integral_v<std::decay_t<T>> && !std::is_same_v<std::decay_t<T>, bool> && std::is_unsigned_v<std::decay_t<T>>, int> = 0>
-    CommandValue& operator=(T value) { value_ = static_cast<uint64_t>(value); return *this; }
+    template<typename T, typename std::enable_if_t<
+        std::is_integral_v<std::decay_t<T>> &&
+        !std::is_same_v<std::decay_t<T>, bool> &&
+        std::is_unsigned_v<std::decay_t<T>>, int> = 0>
+    CommandValue& operator=(T value) {
+        value_ = static_cast<uint64_t>(value);
+        return *this;
+    }
 
     /// <summary>Assigns a floating-point command value.</summary>
-    template<typename T, typename std::enable_if_t<std::is_floating_point_v<std::decay_t<T>>, int> = 0>
-    CommandValue& operator=(T value) { value_ = static_cast<double>(value); return *this; }
+    template<typename T, typename std::enable_if_t<
+        std::is_floating_point_v<std::decay_t<T>>, int> = 0>
+    CommandValue& operator=(T value) {
+        value_ = static_cast<double>(value);
+        return *this;
+    }
 
     /// <summary>Gets the scalar representation currently stored by this value.</summary>
     Type GetType() const noexcept {
@@ -87,31 +146,50 @@ public:
     }
 
     /// <summary>Indicates whether this value is null.</summary>
-    bool IsNull() const noexcept { return std::holds_alternative<std::monostate>(value_); }
-    /// <summary>Gets the underlying variant storage.</summary>
-    const Storage& Value() const noexcept { return value_; }
-    /// <summary>Gets a pointer to the stored string when this value is textual.</summary>
-    /// <returns>The stored string, or null for non-string values.</returns>
-    const std::string* TryGetString() const noexcept {
-        return std::get_if<std::string>(&value_);
+    bool IsNull() const noexcept {
+        return std::holds_alternative<std::monostate>(value_);
     }
 
-    /// <summary>Formats the stored scalar as command text.</summary>
-    std::string ToString() const {
-        if (std::holds_alternative<std::string>(value_)) return std::get<std::string>(value_);
-        if (std::holds_alternative<bool>(value_)) return std::get<bool>(value_) ? "true" : "false";
-        if (std::holds_alternative<int64_t>(value_)) return std::to_string(std::get<int64_t>(value_));
-        if (std::holds_alternative<uint64_t>(value_)) return std::to_string(std::get<uint64_t>(value_));
-        if (std::holds_alternative<double>(value_)) {
-            std::ostringstream stream;
-            stream << std::setprecision(std::numeric_limits<double>::max_digits10) << std::get<double>(value_);
-            return stream.str();
+    /// <summary>Gets the underlying variant storage.</summary>
+    const Storage& Value() const noexcept { return value_; }
+
+    /// <summary>Gets a pointer to the stored System-backed string when this value is textual.</summary>
+    /// <returns>The stored string, or null for non-string values.</returns>
+    const CommandString* TryGetString() const noexcept {
+        return std::get_if<CommandString>(&value_);
+    }
+
+    /// <summary>Formats the stored scalar as System-backed command text.</summary>
+    CommandString ToString() const {
+        if (std::holds_alternative<CommandString>(value_)) {
+            return std::get<CommandString>(value_);
         }
-        return "null";
+        if (std::holds_alternative<bool>(value_)) {
+            return std::get<bool>(value_) ? CommandString("true") : CommandString("false");
+        }
+        if (std::holds_alternative<int64_t>(value_)) {
+            return FormatInteger(std::get<int64_t>(value_));
+        }
+        if (std::holds_alternative<uint64_t>(value_)) {
+            return FormatInteger(std::get<uint64_t>(value_));
+        }
+        if (std::holds_alternative<double>(value_)) {
+            char buffer[48]{};
+            const int written = std::snprintf(
+                buffer,
+                sizeof(buffer),
+                "%.17g",
+                std::get<double>(value_)
+            );
+            return written > 0
+                ? CommandString(buffer, static_cast<std::size_t>(written))
+                : CommandString{};
+        }
+        return CommandString("null");
     }
 
     /// <summary>Converts the stored command scalar to a supported target type with validation and range checking.</summary>
-    /// <typeparam name="T">Target type: <c>CommandValue</c>, <c>std::string</c>, boolean, integral, or floating-point.</typeparam>
+    /// <typeparam name="T">Target type: <c>CommandValue</c>, <c>CommandString</c>, <c>std::string</c>, boolean, integral, or floating-point.</typeparam>
     /// <returns>The converted value.</returns>
     /// <remarks>Throws <c>std::invalid_argument</c> for incompatible or malformed values and <c>std::out_of_range</c> when a numeric conversion cannot fit the target type.</remarks>
     template<typename T>
@@ -119,9 +197,13 @@ public:
         using Target = std::decay_t<T>;
         if constexpr (std::is_same_v<Target, CommandValue>) {
             return *this;
-        } else if constexpr (std::is_same_v<Target, std::string>) {
+        } else if constexpr (std::is_same_v<Target, CommandString>) {
             if (IsNull()) throw std::invalid_argument("Null command value cannot be converted to string");
             return ToString();
+        } else if constexpr (std::is_same_v<Target, std::string>) {
+            if (IsNull()) throw std::invalid_argument("Null command value cannot be converted to string");
+            const auto text = ToString();
+            return std::string(text.begin(), text.end());
         } else if constexpr (std::is_same_v<Target, bool>) {
             if (std::holds_alternative<bool>(value_)) return std::get<bool>(value_);
             if (std::holds_alternative<int64_t>(value_)) {
@@ -134,59 +216,84 @@ public:
                 if (value == 0 || value == 1) return value == 1;
                 throw std::invalid_argument("Expected boolean-compatible integer 0 or 1");
             }
-            if (std::holds_alternative<std::string>(value_)) {
-                const std::string& value = std::get<std::string>(value_);
+            if (std::holds_alternative<CommandString>(value_)) {
+                const CommandString& value = std::get<CommandString>(value_);
                 if (EqualsIgnoreCase(value, "true") || value == "1" ||
                     EqualsIgnoreCase(value, "yes") || EqualsIgnoreCase(value, "on") ||
                     EqualsIgnoreCase(value, "high")) return true;
                 if (EqualsIgnoreCase(value, "false") || value == "0" ||
                     EqualsIgnoreCase(value, "no") || EqualsIgnoreCase(value, "off") ||
                     EqualsIgnoreCase(value, "low")) return false;
-                throw std::invalid_argument("Expected boolean value, got '" + value + "'");
+                throw std::invalid_argument("Expected boolean value");
             }
             throw std::invalid_argument("Command value cannot be converted to boolean");
         } else if constexpr (std::is_integral_v<Target>) {
             long double numeric = 0;
-            if (std::holds_alternative<int64_t>(value_)) numeric = static_cast<long double>(std::get<int64_t>(value_));
-            else if (std::holds_alternative<uint64_t>(value_)) numeric = static_cast<long double>(std::get<uint64_t>(value_));
-            else if (std::holds_alternative<bool>(value_)) numeric = std::get<bool>(value_) ? 1 : 0;
-            else if (std::holds_alternative<double>(value_)) {
+            if (std::holds_alternative<int64_t>(value_)) {
+                numeric = static_cast<long double>(std::get<int64_t>(value_));
+            } else if (std::holds_alternative<uint64_t>(value_)) {
+                numeric = static_cast<long double>(std::get<uint64_t>(value_));
+            } else if (std::holds_alternative<bool>(value_)) {
+                numeric = std::get<bool>(value_) ? 1 : 0;
+            } else if (std::holds_alternative<double>(value_)) {
                 const double value = std::get<double>(value_);
-                if (!std::isfinite(value) || std::floor(value) != value) throw std::invalid_argument("Floating-point command value is not an integer");
+                if (!std::isfinite(value) || std::floor(value) != value) {
+                    throw std::invalid_argument("Floating-point command value is not an integer");
+                }
                 numeric = static_cast<long double>(value);
-            } else if (std::holds_alternative<std::string>(value_)) {
-                const std::string& value = std::get<std::string>(value_);
-                std::size_t used = 0;
+            } else if (std::holds_alternative<CommandString>(value_)) {
+                const CommandString& value = std::get<CommandString>(value_);
+                char* end = nullptr;
+                errno = 0;
                 if constexpr (std::is_signed_v<Target>) {
-                    const long long parsed = std::stoll(value, &used, 0);
-                    if (used != value.size()) throw std::invalid_argument("Expected integer value: " + value);
+                    const long long parsed = std::strtoll(value.c_str(), &end, 0);
+                    if (errno == ERANGE) throw std::out_of_range("Integer command value is out of range");
+                    if (end != value.c_str() + value.size()) throw std::invalid_argument("Expected integer value");
                     numeric = static_cast<long double>(parsed);
                 } else {
-                    if (!value.empty() && value.front() == '-') throw std::out_of_range("Unsigned integer cannot be negative: " + value);
-                    const unsigned long long parsed = std::stoull(value, &used, 0);
-                    if (used != value.size()) throw std::invalid_argument("Expected integer value: " + value);
+                    if (!value.empty() && value.front() == '-') {
+                        throw std::out_of_range("Unsigned integer cannot be negative");
+                    }
+                    const unsigned long long parsed = std::strtoull(value.c_str(), &end, 0);
+                    if (errno == ERANGE) throw std::out_of_range("Integer command value is out of range");
+                    if (end != value.c_str() + value.size()) throw std::invalid_argument("Expected integer value");
                     numeric = static_cast<long double>(parsed);
                 }
-            } else throw std::invalid_argument("Null command value cannot be converted to integer");
+            } else {
+                throw std::invalid_argument("Null command value cannot be converted to integer");
+            }
 
             const long double minimum = static_cast<long double>(std::numeric_limits<Target>::min());
             const long double maximum = static_cast<long double>(std::numeric_limits<Target>::max());
-            if (numeric < minimum || numeric > maximum) throw std::out_of_range("Integer command value is out of range");
+            if (numeric < minimum || numeric > maximum) {
+                throw std::out_of_range("Integer command value is out of range");
+            }
             return static_cast<Target>(numeric);
         } else if constexpr (std::is_floating_point_v<Target>) {
             long double numeric = 0;
-            if (std::holds_alternative<double>(value_)) numeric = static_cast<long double>(std::get<double>(value_));
-            else if (std::holds_alternative<int64_t>(value_)) numeric = static_cast<long double>(std::get<int64_t>(value_));
-            else if (std::holds_alternative<uint64_t>(value_)) numeric = static_cast<long double>(std::get<uint64_t>(value_));
-            else if (std::holds_alternative<bool>(value_)) numeric = std::get<bool>(value_) ? 1 : 0;
-            else if (std::holds_alternative<std::string>(value_)) {
-                const std::string& value = std::get<std::string>(value_);
-                std::size_t used = 0;
-                numeric = std::stold(value, &used);
-                if (used != value.size()) throw std::invalid_argument("Expected numeric value: " + value);
-            } else throw std::invalid_argument("Null command value cannot be converted to number");
+            if (std::holds_alternative<double>(value_)) {
+                numeric = static_cast<long double>(std::get<double>(value_));
+            } else if (std::holds_alternative<int64_t>(value_)) {
+                numeric = static_cast<long double>(std::get<int64_t>(value_));
+            } else if (std::holds_alternative<uint64_t>(value_)) {
+                numeric = static_cast<long double>(std::get<uint64_t>(value_));
+            } else if (std::holds_alternative<bool>(value_)) {
+                numeric = std::get<bool>(value_) ? 1 : 0;
+            } else if (std::holds_alternative<CommandString>(value_)) {
+                const CommandString& value = std::get<CommandString>(value_);
+                char* end = nullptr;
+                errno = 0;
+                numeric = std::strtold(value.c_str(), &end);
+                if (errno == ERANGE) throw std::out_of_range("Floating-point command value is out of range");
+                if (end != value.c_str() + value.size()) throw std::invalid_argument("Expected numeric value");
+            } else {
+                throw std::invalid_argument("Null command value cannot be converted to number");
+            }
 
-            if (numeric < -static_cast<long double>(std::numeric_limits<Target>::max()) || numeric > static_cast<long double>(std::numeric_limits<Target>::max())) throw std::out_of_range("Floating-point command value is out of range");
+            if (numeric < -static_cast<long double>(std::numeric_limits<Target>::max()) ||
+                numeric > static_cast<long double>(std::numeric_limits<Target>::max())) {
+                throw std::out_of_range("Floating-point command value is out of range");
+            }
             return static_cast<Target>(numeric);
         } else {
             static_assert(!sizeof(Target), "Unsupported CommandValue::As<T>() type");
@@ -194,7 +301,31 @@ public:
     }
 
 private:
-    static bool EqualsIgnoreCase(const std::string& value, const char* expected) noexcept {
+    template<typename TInteger>
+    static CommandString FormatInteger(TInteger value) {
+        char buffer[32]{};
+        int written = 0;
+        if constexpr (std::is_signed_v<TInteger>) {
+            written = std::snprintf(
+                buffer,
+                sizeof(buffer),
+                "%lld",
+                static_cast<long long>(value)
+            );
+        } else {
+            written = std::snprintf(
+                buffer,
+                sizeof(buffer),
+                "%llu",
+                static_cast<unsigned long long>(value)
+            );
+        }
+        return written > 0
+            ? CommandString(buffer, static_cast<std::size_t>(written))
+            : CommandString{};
+    }
+
+    static bool EqualsIgnoreCase(const CommandString& value, const char* expected) noexcept {
         if (expected == nullptr) return false;
         std::size_t index = 0;
         for (; index < value.size() && expected[index] != '\0'; ++index) {

@@ -48,7 +48,7 @@ jobs:
           platform = espressif32
           board = esp32dev
           framework = arduino
-          build_flags = -std=gnu++17 -fno-rtti -DESPRESSIO_SERIALIZATION_PREFER_PSRAM
+          build_flags = -std=gnu++17 -fno-rtti
           build_unflags = -std=gnu++11 -frtti
           lib_ldf_mode = deep+
           lib_deps =
@@ -107,7 +107,7 @@ jobs:
           platform = espressif32
           board = esp32dev
           framework = arduino
-          build_flags = -std=gnu++17 -fno-rtti -DESPRESSIO_SERIALIZATION_PREFER_PSRAM
+          build_flags = -std=gnu++17 -fno-rtti
           build_unflags = -std=gnu++11 -frtti
           lib_ldf_mode = deep+
           lib_deps =
