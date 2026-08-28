@@ -96,9 +96,11 @@ int main() {
 
     const auto completions = registry.Complete("gpio w");
     assert(completions.size() == 1 && completions[0] == "write");
-    assert(registry.Help({"gpio", "write"}).find("pin") != std::string::npos);
-    assert(registry.Resolve({"gpio", "write"}) == &write);
-    assert(registry.Resolve({"gpio", "missing"}) == nullptr);
+    CommandPath writePath{"gpio", "write"};
+    CommandPath missingPath{"gpio", "missing"};
+    assert(registry.Help(writePath).find("pin") != std::string::npos);
+    assert(registry.Resolve(writePath) == &write);
+    assert(registry.Resolve(missingPath) == nullptr);
 
     std::string lineResult;
     CommandLine line(registry);
