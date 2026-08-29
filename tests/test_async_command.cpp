@@ -91,9 +91,17 @@ int main() {
             pending.Expire(200, [&](const CommandPendingRequest& request) {
                 assert(request.RequestId == 2);
                 ++expired;
+                // Expiry callbacks execute outside the pool mutex and may
+                // safely submit new work into the newly freed bounded slot.
+                assert(
+                    pending.Add(3, destination, 300) ==
+                    CommandPendingStatus::Success
+                );
             }) == 1
         );
         assert(expired == 1);
+        assert(pending.ActiveCount() == 1);
+        assert(pending.Complete(3) == CommandPendingStatus::Success);
         assert(pending.ActiveCount() == 0);
     }
 

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -41,10 +40,27 @@ struct CommandPendingRequest {
 
 /// <summary>Fixed-capacity, thread-safe pool of pending asynchronous command requests.</summary>
 /// <typeparam name="Capacity">Maximum number of concurrently pending requests.</typeparam>
+/// <remarks>
+/// The bounded entry table is allocated lazily using ESPressio System <c>ExternalPreferred</c> storage,
+/// keeping persistent request bookkeeping out of scarce internal DRAM. Expiry collection also uses
+/// external-preferred storage only when requests actually expire, eliminating the previous
+/// <c>Capacity</c>-sized stack snapshot while keeping the no-expiry fast path allocation-free.
+/// </remarks>
 template <size_t Capacity = 16>
 class CommandPendingRequestPool {
-    std::array<CommandPendingRequest, Capacity> _entries{};
+    static constexpr auto ExternalPreferred =
+        System::Memory::MemoryPolicy::ExternalPreferred;
+    using RequestStorage =
+        System::Memory::Vector<CommandPendingRequest, ExternalPreferred>;
+
+    RequestStorage _entries;
     mutable std::mutex _mutex;
+
+    void EnsureEntriesLocked() {
+        if (_entries.empty() && Capacity != 0) {
+            _entries.resize(Capacity);
+        }
+    }
 
 public:
     /// <summary>Adds a request to the pending pool when its ID is unique and capacity is available.</summary>
@@ -55,6 +71,7 @@ public:
         CommandResponseMode responseMode = CommandResponseMode::Single
     ) {
         std::lock_guard<std::mutex> lock(_mutex);
+        EnsureEntriesLocked();
 
         CommandPendingRequest* freeEntry = nullptr;
         for (auto& entry : _entries) {
@@ -105,16 +122,34 @@ public:
     /// <summary>Removes requests whose deadlines have elapsed and invokes a callback for each expired entry.</summary>
     /// <typeparam name="Callback">Callable receiving each expired <c>CommandPendingRequest</c>.</typeparam>
     /// <returns>The number of expired requests.</returns>
+    /// <remarks>
+    /// Expired entries are copied into an externally preferred temporary snapshot so callbacks execute without
+    /// holding the pool mutex. No temporary allocation occurs when no request has expired.
+    /// </remarks>
     template <typename Callback>
     size_t Expire(
         uint64_t nowMilliseconds,
         Callback callback
     ) {
-        std::array<CommandPendingRequest, Capacity> expired{};
-        size_t expiredCount = 0;
+        RequestStorage expired;
 
         {
             std::lock_guard<std::mutex> lock(_mutex);
+            size_t expiredCount = 0;
+            for (const auto& entry : _entries) {
+                if (
+                    entry.Active &&
+                    entry.DeadlineMilliseconds <= nowMilliseconds
+                ) {
+                    ++expiredCount;
+                }
+            }
+
+            if (expiredCount == 0) {
+                return 0;
+            }
+
+            expired.reserve(expiredCount);
             for (auto& entry : _entries) {
                 if (
                     !entry.Active ||
@@ -123,15 +158,15 @@ public:
                     continue;
                 }
 
-                expired[expiredCount++] = entry;
+                expired.push_back(entry);
                 entry = {};
             }
         }
 
-        for (size_t index = 0; index < expiredCount; ++index) {
-            callback(expired[index]);
+        for (const auto& item : expired) {
+            callback(item);
         }
-        return expiredCount;
+        return expired.size();
     }
 
     /// <summary>Gets the number of requests currently awaiting responses.</summary>
