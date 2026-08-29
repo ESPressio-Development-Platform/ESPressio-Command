@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
-#include <string>
 #include <string_view>
 #include <utility>
 
@@ -177,9 +176,9 @@ public:
         _transportDefaultMilliseconds = milliseconds;
     }
 
-    /// <summary>Sets or replaces the default response timeout associated with a command path.</summary>
+    /// <summary>Sets or replaces the default response timeout associated with a command path without allocating at the call boundary.</summary>
     void SetCommandDefault(
-        std::string path,
+        std::string_view path,
         uint32_t milliseconds
     ) {
         std::lock_guard<std::mutex> lock(_mutex);
@@ -196,9 +195,9 @@ public:
         _entries.push_back(std::move(entry));
     }
 
-    /// <summary>Resolves the effective timeout using instance override, command default, then transport default precedence.</summary>
+    /// <summary>Resolves the effective timeout using instance override, command default, then transport default precedence without copying the lookup path.</summary>
     uint32_t Resolve(
-        const std::string& path,
+        std::string_view path,
         uint32_t instanceOverrideMilliseconds = 0
     ) const {
         if (instanceOverrideMilliseconds != 0) {
