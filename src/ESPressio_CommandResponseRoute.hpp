@@ -4,7 +4,8 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <vector>
+
+#include <ESPressio_Memory.hpp>
 
 #include "ESPressio_CommandEnvelope.hpp"
 
@@ -32,7 +33,10 @@ class CommandResponseRouteRegistry {
     };
 
     std::mutex _mutex;
-    std::vector<Entry> _routes;
+    System::Memory::Vector<
+        Entry,
+        System::Memory::MemoryPolicy::ExternalPreferred
+    > _routes;
     std::atomic<CommandTransportRouteId> _nextId{1};
 
     CommandResponseRouteRegistry() = default;
