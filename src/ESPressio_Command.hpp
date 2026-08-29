@@ -608,7 +608,8 @@ public:
         if (invocation.path.empty()) return CommandResult::Error("No command path supplied");
         const CommandNode* node = Resolve(invocation.path);
         if (node == nullptr) {
-            CommandString message = Detail::BuildCommandMessage("Unknown command path '", CommandStringView(JoinPath(invocation.path)), "'");
+            const CommandString joined = JoinPath(invocation.path);
+            CommandString message = Detail::BuildCommandMessage("Unknown command path '", CommandStringView(joined), "'");
             return CommandResult::Error(std::move(message));
         }
         return InvokeResolved(*node, invocation);
@@ -681,7 +682,6 @@ private:
             AppendCommandString(result, "  ");
             AppendCommandString(result, CommandStringView(child->name_));
             if (!child->description_.empty()) {
-                target_append_description:
                 result.push_back('\t');
                 AppendCommandString(result, CommandStringView(child->description_));
             }
@@ -721,7 +721,8 @@ private:
         }
         if (!node->children_.empty()) {
             AppendCommandString(result, "\nCommands:\n");
-            AppendCommandString(result, CommandStringView(HelpChildren(*node)));
+            CommandString children = HelpChildren(*node);
+            AppendCommandString(result, CommandStringView(children));
         }
         if (!node->parameters_.empty()) {
             AppendCommandString(result, "\nParameters:\n");
@@ -743,7 +744,8 @@ private:
         }
         if (node == &root_) {
             AppendCommandString(result, "Commands:\n");
-            AppendCommandString(result, CommandStringView(HelpChildren(root_)));
+            CommandString children = HelpChildren(root_);
+            AppendCommandString(result, CommandStringView(children));
         }
         return result;
     }
@@ -773,12 +775,14 @@ private:
         if (node == &root_) {
             const std::string_view token = tokens.empty() ? std::string_view{} : CommandStringView(tokens.front());
             CommandString message = Detail::BuildCommandMessage("Unknown command '", token, "'.\n");
-            AppendCommandString(message, CommandStringView(Suggest(root_, token)));
+            CommandString suggestion = Suggest(root_, token);
+            AppendCommandString(message, CommandStringView(suggestion));
             return CommandResult::Error(std::move(message));
         }
         if (!node->children_.empty() && !node->callback_ && index == tokens.size()) {
             CommandString message = MakeCommandString("Incomplete command.\n");
-            AppendCommandString(message, CommandStringView(Help(invocation.path)));
+            CommandString help = Help(invocation.path);
+            AppendCommandString(message, CommandStringView(help));
             return CommandResult::Error(std::move(message));
         }
         while (index < tokens.size()) {
@@ -836,7 +840,8 @@ private:
                 CommandString message = Detail::BuildCommandMessage(
                     "Missing required parameter '", CommandStringView(parameter.Name()), "'.\n"
                 );
-                AppendCommandString(message, CommandStringView(Help(invocation.path)));
+                CommandString help = Help(invocation.path);
+                AppendCommandString(message, CommandStringView(help));
                 return CommandResult::Error(std::move(message));
             }
             if (value != nullptr) {
@@ -869,15 +874,14 @@ private:
             if (!known) {
                 CommandString message = MakeCommandString("Unknown parameter '--");
                 AppendCommandString(message, CommandStringView(pair.first));
-                result_close_quote:
-                result_close_quote_unused:
                 message.push_back('\'');
                 return CommandResult::Error(std::move(message));
             }
         }
         if (!node.callback_) {
             CommandString message = MakeCommandString("Command is not executable.\n");
-            AppendCommandString(message, CommandStringView(Help(invocation.path)));
+            CommandString help = Help(invocation.path);
+            AppendCommandString(message, CommandStringView(help));
             return CommandResult::Error(std::move(message));
         }
 
