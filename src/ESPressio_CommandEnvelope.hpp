@@ -115,7 +115,13 @@ struct CommandRequestEnvelope {
         return SetRaw(value.data(), value.size());
     }
 
-    /// <summary>Returns the stored raw command text as an owning string.</summary>
+    /// <summary>Returns a non-owning view over the bounded raw command text without allocating.</summary>
+    std::string_view RawView() const noexcept {
+        return std::string_view(Raw.data(), RawLength);
+    }
+
+    /// <summary>Returns the stored raw command text as an owning standard-library string.</summary>
+    /// <remarks>Prefer <c>RawView()</c> when the caller does not require ownership.</remarks>
     std::string RawString() const {
         return std::string(Raw.data(), RawLength);
     }
@@ -136,7 +142,7 @@ struct CommandResponseEnvelope {
 
     /// <summary>Stores a response message, truncating to the bounded capacity when necessary.</summary>
     /// <returns><c>true</c> when the complete message fits without truncation.</returns>
-    bool SetMessage(const std::string& value) {
+    bool SetMessage(std::string_view value) {
         const size_t length =
             value.size() < Message.size() - 1
                 ? value.size()
@@ -149,7 +155,13 @@ struct CommandResponseEnvelope {
         return length == value.size();
     }
 
-    /// <summary>Returns the stored response message as an owning string.</summary>
+    /// <summary>Returns a non-owning view over the bounded response message without allocating.</summary>
+    std::string_view MessageView() const noexcept {
+        return std::string_view(Message.data(), MessageLength);
+    }
+
+    /// <summary>Returns the stored response message as an owning standard-library string.</summary>
+    /// <remarks>Prefer <c>MessageView()</c> when the caller does not require ownership.</remarks>
     std::string MessageString() const {
         return std::string(Message.data(), MessageLength);
     }
