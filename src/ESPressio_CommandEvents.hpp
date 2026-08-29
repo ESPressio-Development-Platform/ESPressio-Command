@@ -5,6 +5,7 @@
 #include <ESPressio_Event.hpp>
 
 #include "ESPressio_CommandEnvelope.hpp"
+#include "ESPressio_CommandTypes.hpp"
 
 namespace ESPressio::Event {
 
