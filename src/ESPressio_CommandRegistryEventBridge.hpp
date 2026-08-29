@@ -45,13 +45,13 @@ public:
     /// <summary>Indicates whether the bridge has an active registry observer registration.</summary>
     bool IsInitialized() const { return _initialized; }
 
-    /// <summary>Queues a <c>CommandRegisteredEvent</c> for a newly registered path.</summary>
-    void OnCommandRegistered(const std::vector<std::string>& path) override {
+    /// <summary>Queues a <c>CommandRegisteredEvent</c> for a newly registered externally backed path.</summary>
+    void OnCommandRegistered(const Command::CommandPath& path) override {
         (new CommandRegisteredEvent(path))->Queue();
     }
 
-    /// <summary>Queues a <c>CommandUnregisteredEvent</c> for a removed path.</summary>
-    void OnCommandUnregistered(const std::vector<std::string>& path) override {
+    /// <summary>Queues a <c>CommandUnregisteredEvent</c> for a removed externally backed path.</summary>
+    void OnCommandUnregistered(const Command::CommandPath& path) override {
         (new CommandUnregisteredEvent(path))->Queue();
     }
 };
