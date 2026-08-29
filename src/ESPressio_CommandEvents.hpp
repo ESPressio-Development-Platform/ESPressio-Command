@@ -1,8 +1,6 @@
 #pragma once
 
-#include <string>
 #include <utility>
-#include <vector>
 
 #include <ESPressio_Event.hpp>
 
@@ -14,20 +12,26 @@ namespace ESPressio::Event {
 class CommandRegisteredEvent final :
     public TypedEvent<CommandRegisteredEvent> {
 public:
-    /// <summary>Registered command path segments.</summary>
-    const std::vector<std::string> Path;
-    /// <summary>Creates a command-registration event.</summary>
-    explicit CommandRegisteredEvent(const std::vector<std::string>& path) : Path(path) {}
+    /// <summary>Registered command path segments using ESPressio System externally preferred storage.</summary>
+    const Command::CommandPath Path;
+
+    /// <summary>Creates a command-registration event by taking an owned snapshot of the borrowed registry path.</summary>
+    /// <remarks>The required lifetime copy remains externally backed rather than converting through ordinary <c>std::vector&lt;std::string&gt;</c> storage.</remarks>
+    explicit CommandRegisteredEvent(const Command::CommandPath& path)
+        : Path(path) {}
 };
 
 /// <summary>Event emitted when a command path is unregistered.</summary>
 class CommandUnregisteredEvent final :
     public TypedEvent<CommandUnregisteredEvent> {
 public:
-    /// <summary>Unregistered command path segments.</summary>
-    const std::vector<std::string> Path;
-    /// <summary>Creates a command-unregistration event.</summary>
-    explicit CommandUnregisteredEvent(const std::vector<std::string>& path) : Path(path) {}
+    /// <summary>Unregistered command path segments using ESPressio System externally preferred storage.</summary>
+    const Command::CommandPath Path;
+
+    /// <summary>Creates a command-unregistration event by taking an owned snapshot of the borrowed registry path.</summary>
+    /// <remarks>The required lifetime copy remains externally backed rather than converting through ordinary <c>std::vector&lt;std::string&gt;</c> storage.</remarks>
+    explicit CommandUnregisteredEvent(const Command::CommandPath& path)
+        : Path(path) {}
 };
 
 /// <summary>Event carrying an inbound command request envelope for asynchronous execution.</summary>
@@ -41,6 +45,12 @@ public:
     explicit InboundCommandEvent(
         const Command::CommandRequestEnvelope& envelope
     ) : Envelope(envelope) {}
+
+    /// <summary>Creates an inbound-command event by transferring ownership of a request envelope.</summary>
+    /// <remarks>Use this overload when the caller no longer needs the source envelope to avoid duplicating allocator-aware command payload storage.</remarks>
+    explicit InboundCommandEvent(
+        Command::CommandRequestEnvelope&& envelope
+    ) : Envelope(std::move(envelope)) {}
 };
 
 /// <summary>Event emitted after a command request completes and response routing has been attempted.</summary>
@@ -62,6 +72,18 @@ public:
     ) :
         Request(request),
         Response(response),
+        ResponseRouted(responseRouted) {
+    }
+
+    /// <summary>Creates a command-completion event by transferring owned request and response envelopes.</summary>
+    /// <remarks>Use this overload when both source envelopes are disposable to avoid duplicating allocator-aware command payload storage.</remarks>
+    CommandCompletedEvent(
+        Command::CommandRequestEnvelope&& request,
+        Command::CommandResponseEnvelope&& response,
+        bool responseRouted
+    ) :
+        Request(std::move(request)),
+        Response(std::move(response)),
         ResponseRouted(responseRouted) {
     }
 };
