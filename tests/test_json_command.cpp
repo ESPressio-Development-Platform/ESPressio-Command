@@ -74,7 +74,7 @@ int main() {
     assert(result.success && pin == 6 && state);
 
     CommandInvocation invocation;
-    std::string error;
+    CommandString error;
     assert(json.Parse(R"({"path":["gpio","write"],"parameters":{"pin":7,"state":true}})", invocation, &error));
     assert(error.empty());
     assert(invocation.path.size() == 2);
@@ -129,7 +129,7 @@ int main() {
     assert(foundGpio);
     assert(!foundSecret);
 
-    const std::string writeDescriptionJson = json.Describe({"gpio", "write"});
+    const std::string writeDescriptionJson = json.Describe(CommandPath{"gpio", "write"});
     ArduinoJson::JsonDocument writeDescription;
     assert(!ArduinoJson::deserializeJson(writeDescription, writeDescriptionJson));
     assert(writeDescription["success"].as<bool>());
@@ -142,7 +142,7 @@ int main() {
     assert(parameters[0]["minimum"].as<double>() == 0.0);
     assert(parameters[0]["maximum"].as<double>() == 48.0);
 
-    const std::string fullDiscoveryJson = json.Describe({}, true);
+    const std::string fullDiscoveryJson = json.Describe(CommandPath{}, true);
     ArduinoJson::JsonDocument fullDiscovery;
     assert(!ArduinoJson::deserializeJson(fullDiscovery, fullDiscoveryJson));
     foundSecret = false;

@@ -7,7 +7,7 @@
 #include <ArduinoJson.h>
 #include <cstdint>
 #include <string>
-#include <vector>
+#include <string_view>
 
 #include "ESPressio_Command.hpp"
 
@@ -21,20 +21,29 @@ public:
         CommandRegistry& registry = CommandRegistry::GetInstance()
     ) : registry_(registry) {}
 
-    /// <summary>Parses a JSON command object into a structured command invocation.</summary>
+    /// <summary>Parses a borrowed JSON command object into a structured command invocation.</summary>
     /// <param name="json">JSON command document to parse.</param>
     /// <param name="invocation">Receives the parsed command path and scalar arguments.</param>
-    /// <param name="error">Optional destination for a human-readable parse error.</param>
+    /// <param name="error">Optional externally preferred destination for a human-readable parse error.</param>
     /// <returns><c>true</c> when the JSON command is valid.</returns>
     bool Parse(
-        const std::string& json,
+        std::string_view json,
         CommandInvocation& invocation,
-        std::string* error = nullptr
+        CommandString* error = nullptr
     ) const {
         ArduinoJson::JsonDocument document;
-        const auto parseError = ArduinoJson::deserializeJson(document, json);
+        const auto parseError = ArduinoJson::deserializeJson(
+            document,
+            json.data(),
+            json.size()
+        );
         if (parseError) {
-            SetError(error, std::string("Invalid JSON: ") + parseError.c_str());
+            if (error != nullptr) {
+                *error = Detail::BuildCommandMessage(
+                    "Invalid JSON: ",
+                    parseError.c_str()
+                );
+            }
             return false;
         }
 
@@ -45,7 +54,7 @@ public:
 
         const auto object = document.as<ArduinoJson::JsonObjectConst>();
         invocation = CommandInvocation{};
-        invocation.raw = json;
+        invocation.raw.assign(json.data(), json.size());
 
         const bool hasPath = object["path"].is<ArduinoJson::JsonArrayConst>();
         const bool hasCommand = object["command"].is<const char*>();
@@ -66,13 +75,13 @@ public:
                 invocation.path.emplace_back(item.as<const char*>());
             }
         } else {
-            std::string tokenizeError;
+            CommandString tokenizeError;
             invocation.path = TextCommandParser::Tokenize(
                 object["command"].as<const char*>(),
                 &tokenizeError
             );
             if (!tokenizeError.empty()) {
-                SetError(error, tokenizeError);
+                if (error != nullptr) *error = std::move(tokenizeError);
                 return false;
             }
         }
@@ -97,11 +106,13 @@ public:
             for (ArduinoJson::JsonPairConst pair : namedObject) {
                 CommandValue value;
                 if (!ReadScalar(pair.value(), value)) {
-                    SetError(
-                        error,
-                        std::string("Parameter '") + pair.key().c_str() +
-                        "' must be a JSON scalar value"
-                    );
+                    if (error != nullptr) {
+                        *error = Detail::BuildCommandMessage(
+                            "Parameter '",
+                            pair.key().c_str(),
+                            "' must be a JSON scalar value"
+                        );
+                    }
                     return false;
                 }
                 invocation.named.emplace(pair.key().c_str(), std::move(value));
@@ -128,10 +139,10 @@ public:
         return true;
     }
 
-    /// <summary>Parses and synchronously invokes one JSON command document.</summary>
-    CommandResult Invoke(const std::string& json) const {
+    /// <summary>Parses and synchronously invokes one borrowed JSON command document.</summary>
+    CommandResult Invoke(std::string_view json) const {
         CommandInvocation invocation;
-        std::string error;
+        CommandString error;
         if (!Parse(json, invocation, &error)) {
             return CommandResult::Error(std::move(error));
         }
@@ -139,7 +150,7 @@ public:
     }
 
     /// <summary>Invokes a JSON command and serializes its <c>CommandResult</c> as JSON.</summary>
-    std::string InvokeToJson(const std::string& json) const {
+    std::string InvokeToJson(std::string_view json) const {
         return SerializeResult(Invoke(json));
     }
 
@@ -155,10 +166,10 @@ public:
     }
 
     /// <summary>Returns a JSON description of the registry root or a selected command path.</summary>
-    /// <param name="path">Optional command path to describe; an empty path describes top-level commands.</param>
+    /// <param name="path">Optional externally preferred command path to describe; an empty path describes top-level commands.</param>
     /// <param name="includeHidden">Whether hidden commands should be included.</param>
     std::string Describe(
-        const std::vector<std::string>& path = {},
+        const CommandPath& path = {},
         bool includeHidden = false
     ) const {
         ArduinoJson::JsonDocument document;
@@ -200,8 +211,8 @@ public:
 private:
     CommandRegistry& registry_;
 
-    static void SetError(std::string* error, std::string message) {
-        if (error != nullptr) *error = std::move(message);
+    static void SetError(CommandString* error, std::string_view message) {
+        if (error != nullptr) error->assign(message.data(), message.size());
     }
 
     static bool ReadScalar(

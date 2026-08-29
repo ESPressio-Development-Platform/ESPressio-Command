@@ -1,6 +1,4 @@
 #include <cassert>
-#include <string>
-#include <vector>
 
 #include <ESPressio_Command.hpp>
 #include <ESPressio_ICommandRegistryObserver.hpp>
@@ -11,14 +9,14 @@ class Observer final : public ICommandRegistryObserver {
 public:
     int Registered = 0;
     int Unregistered = 0;
-    std::vector<std::string> LastPath;
+    CommandPath LastPath;
 
-    void OnCommandRegistered(const std::vector<std::string>& path) override {
+    void OnCommandRegistered(const CommandPath& path) override {
         ++Registered;
         LastPath = path;
     }
 
-    void OnCommandUnregistered(const std::vector<std::string>& path) override {
+    void OnCommandUnregistered(const CommandPath& path) override {
         ++Unregistered;
         LastPath = path;
     }
@@ -45,7 +43,7 @@ int main() {
 
     registry.Command("beta");
     assert(observer.Registered == 2);
-    assert(registry.UnregisterCommand({"beta"}));
+    assert(registry.UnregisterCommand(CommandPath{"beta"}));
     assert(observer.Unregistered == 2);
 
     observerHandle.reset();

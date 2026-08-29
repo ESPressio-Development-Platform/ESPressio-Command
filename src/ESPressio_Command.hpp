@@ -56,9 +56,19 @@ struct CommandResult {
         return {true, 0, MakeCommandString(message)};
     }
 
-    /// <summary>Creates a successful command result by taking ownership of externally preferred text.</summary>
-    static CommandResult Ok(CommandString&& message) {
-        return {true, 0, std::move(message)};
+    /// <summary>Creates a successful command result from exact externally preferred Command text, preserving move ownership for rvalues.</summary>
+    template<
+        typename TString,
+        std::enable_if_t<
+            std::is_same_v<
+                std::remove_cv_t<std::remove_reference_t<TString>>,
+                CommandString
+            >,
+            int
+        > = 0
+    >
+    static CommandResult Ok(TString&& message) {
+        return {true, 0, std::forward<TString>(message)};
     }
 
     /// <summary>Creates a failed command result from borrowed text.</summary>
@@ -66,9 +76,19 @@ struct CommandResult {
         return {false, code, MakeCommandString(message)};
     }
 
-    /// <summary>Creates a failed command result by taking ownership of externally preferred text.</summary>
-    static CommandResult Error(CommandString&& message, int code = 1) {
-        return {false, code, std::move(message)};
+    /// <summary>Creates a failed command result from exact externally preferred Command text, preserving move ownership for rvalues.</summary>
+    template<
+        typename TString,
+        std::enable_if_t<
+            std::is_same_v<
+                std::remove_cv_t<std::remove_reference_t<TString>>,
+                CommandString
+            >,
+            int
+        > = 0
+    >
+    static CommandResult Error(TString&& message, int code = 1) {
+        return {false, code, std::forward<TString>(message)};
     }
 };
 
