@@ -1,26 +1,25 @@
 #pragma once
 
-#include <string>
-#include <vector>
-
 #include <ESPressio_IObserver.hpp>
+
+#include "ESPressio_CommandTypes.hpp"
 
 namespace ESPressio::Command {
 
-/// <summary>Observes command-path registration changes in a command registry.</summary>
+/// <summary>Observes Command-path registration changes in a Command registry.</summary>
 class ICommandRegistryObserver :
     public virtual Observable::IObserver {
 public:
     virtual ~ICommandRegistryObserver() = default;
 
-    /// <summary>Called after a command path is registered.</summary>
+    /// <summary>Called after a Command path is registered. The borrowed path uses externally preferred backing storage.</summary>
     virtual void OnCommandRegistered(
-        const std::vector<std::string>&
+        const CommandPath&
     ) {}
 
-    /// <summary>Called after a command path is unregistered.</summary>
+    /// <summary>Called after a Command path is unregistered. The borrowed path uses externally preferred backing storage.</summary>
     virtual void OnCommandUnregistered(
-        const std::vector<std::string>&
+        const CommandPath&
     ) {}
 };
 
