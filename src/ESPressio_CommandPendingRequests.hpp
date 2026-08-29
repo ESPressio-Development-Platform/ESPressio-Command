@@ -6,8 +6,8 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <utility>
-#include <vector>
 
 #include <ESPressio_Memory.hpp>
 
@@ -150,17 +150,25 @@ public:
 
 /// <summary>Resolves command-response timeouts from instance overrides, command defaults, and a transport default.</summary>
 class CommandResponseTimeoutRegistry {
+    static constexpr auto ExternalPreferred =
+        System::Memory::MemoryPolicy::ExternalPreferred;
+    using ExternalString = System::Memory::String<ExternalPreferred>;
+
     struct Entry {
-        std::string Path;
+        ExternalString Path;
         uint32_t Milliseconds = 0;
     };
 
     mutable std::mutex _mutex;
-    System::Memory::Vector<
-        Entry,
-        System::Memory::MemoryPolicy::ExternalPreferred
-    > _entries;
+    System::Memory::Vector<Entry, ExternalPreferred> _entries;
     uint32_t _transportDefaultMilliseconds = 100;
+
+    static bool PathEquals(
+        const ExternalString& stored,
+        std::string_view candidate
+    ) noexcept {
+        return std::string_view(stored.data(), stored.size()) == candidate;
+    }
 
 public:
     /// <summary>Sets the fallback response timeout used when no command or instance override exists.</summary>
@@ -176,12 +184,16 @@ public:
     ) {
         std::lock_guard<std::mutex> lock(_mutex);
         for (auto& entry : _entries) {
-            if (entry.Path == path) {
+            if (PathEquals(entry.Path, path)) {
                 entry.Milliseconds = milliseconds;
                 return;
             }
         }
-        _entries.push_back({std::move(path), milliseconds});
+
+        Entry entry;
+        entry.Path.assign(path.data(), path.size());
+        entry.Milliseconds = milliseconds;
+        _entries.push_back(std::move(entry));
     }
 
     /// <summary>Resolves the effective timeout using instance override, command default, then transport default precedence.</summary>
@@ -195,7 +207,7 @@ public:
 
         std::lock_guard<std::mutex> lock(_mutex);
         for (const auto& entry : _entries) {
-            if (entry.Path == path && entry.Milliseconds != 0) {
+            if (PathEquals(entry.Path, path) && entry.Milliseconds != 0) {
                 return entry.Milliseconds;
             }
         }
