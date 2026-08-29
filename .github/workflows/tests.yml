@@ -45,7 +45,7 @@ jobs:
           mkdir -p project/compile-json/src
           cat > project/compile-json/platformio.ini <<'EOF'
           [env:esp32]
-          platform = espressif32
+          platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.311/platform-espressif32.zip
           board = esp32dev
           framework = arduino
           build_flags = -std=gnu++17 -fno-rtti
@@ -104,7 +104,7 @@ jobs:
           mkdir -p project/compile/src
           cat > project/compile/platformio.ini <<'EOF'
           [env:esp32]
-          platform = espressif32
+          platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.311/platform-espressif32.zip
           board = esp32dev
           framework = arduino
           build_flags = -std=gnu++17 -fno-rtti
