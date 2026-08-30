@@ -72,6 +72,26 @@ int main() {
     assert(typedInvocation.named["state"].GetType() == CommandValue::Type::Boolean);
     assert(typedInvocation.named["duty"].GetType() == CommandValue::Type::FloatingPoint);
 
+    auto assertText = [](const CommandValue& value, const char* expected) {
+        bool invoked = false;
+        const bool accepted = WithCommandValueText(
+            value,
+            [&](std::string_view rendered) {
+                invoked = true;
+                return rendered == expected;
+            }
+        );
+        assert(invoked && accepted);
+    };
+    assertText(CommandValue("hello"), "hello");
+    assertText(CommandValue(true), "true");
+    assertText(CommandValue(false), "false");
+    assertText(CommandValue(-42), "-42");
+    assertText(CommandValue(static_cast<uint64_t>(42)), "42");
+    assertText(CommandValue(0.125), "0.125");
+    assertText(CommandValue(nullptr), "null");
+    assert(!WithCommandValueText(CommandValue(7), [](std::string_view) { return false; }));
+
     auto& inspect = registry.Command("inspect");
     inspect.Parameter<int>("value");
     std::string rawValue;
