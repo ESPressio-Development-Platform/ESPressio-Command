@@ -1,0 +1,71 @@
+name: Command Event Executor Architecture
+on: [push, pull_request]
+
+jobs:
+  decomposition-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.x'}
+      - run: python tools/check_command_event_executor_decomposition.py
+
+  esp32-command-event-executor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {path: project/ESPressio-Command}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-System, ref: feature/1-system-memory-policy, path: project/dependencies/ESPressio-System}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Task, ref: feature/1-task-execution, path: project/dependencies/ESPressio-Task}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Observable, ref: feature/16-rtti-free-observer-registry, path: project/dependencies/ESPressio-Observable}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Serializable, ref: optimisation/25-psram-buffers, path: project/dependencies/ESPressio-Serializable}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Units, ref: main, path: project/dependencies/ESPressio-Units}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Timing, ref: feature/29-platform-clock-abstractions, path: project/dependencies/ESPressio-Timing}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Threads, ref: optimisation/69-resource-footprint, path: project/dependencies/ESPressio-Threads}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Event, ref: feature/57-rtti-free-memory-efficiency, path: project/dependencies/ESPressio-Event}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.x'}
+      - run: pip install platformio
+      - name: Build decomposed Command Event executor
+        shell: bash
+        run: |
+          mkdir -p project/compile/src
+          cat > project/compile/platformio.ini <<'EOF'
+          [env:esp32]
+          platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.311/platform-espressif32.zip
+          board = esp32dev
+          framework = arduino
+          build_flags = -std=gnu++17 -fno-rtti
+          build_unflags = -std=gnu++11 -frtti
+          lib_ldf_mode = deep+
+          lib_deps =
+              ../dependencies/ESPressio-System
+              ../dependencies/ESPressio-Task
+              ../dependencies/ESPressio-Observable
+              ../dependencies/ESPressio-Serializable
+              ../dependencies/ESPressio-Units
+              ../dependencies/ESPressio-Timing
+              ../dependencies/ESPressio-Threads
+              ../dependencies/ESPressio-Event
+              ../ESPressio-Command
+          EOF
+          cat > project/compile/src/main.cpp <<'EOF'
+          #include <Arduino.h>
+          #include <ESPressio_CommandEventExecutor.hpp>
+          void setup() {
+              auto& executor = ESPressio::Command::CommandEventExecutor::GetInstance();
+              (void)executor.Prepare();
+              (void)executor.IsPrepared();
+              (void)executor.GetExecutionStatistics();
+          }
+          void loop() {}
+          EOF
+          pio run -d project/compile
