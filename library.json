@@ -22,19 +22,19 @@
     "dependencies": [
         {
             "name": "ESPressio-System",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-System.git#main"
+            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-System.git#structural_realignment"
         },
         {
             "name": "ESPressio-Task",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Task.git#main"
+            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Task.git#structural_realignment"
         },
         {
             "name": "ESPressio-Observable",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Observable.git#main"
+            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Observable.git#structural_realignment"
         },
         {
             "name": "ESPressio-Event",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#main",
+            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#structural_realignment",
             "platforms": "espressif32"
         }
     ]
