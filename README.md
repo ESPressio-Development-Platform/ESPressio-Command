@@ -6,7 +6,7 @@ ESPressio Command separates **what an application is being asked to do** from **
 
 ## Current Version — 1.0.3
 
-Command 1.0.3 is a dependency-maintenance release in the Serializable 0.11.3 cascade. It preserves the representation-neutral typed invocation model and existing runtime behaviour while validating the optional Event integration against released Event 6.0.3 and its released dependency chain.
+During the release restructuring, Command preserves the representation-neutral typed invocation model and existing runtime behaviour while validating the optional Event integration against ESPressio Event `main` and its current dependency chain.
 
 The 1.0 generation is a major release because the exact public container types of `CommandInvocation::positional` and `CommandInvocation::named` now contain `CommandValue` rather than `std::string`. Common string assignment and initializer-list usage remains supported, but code depending on those exact container types must migrate.
 
@@ -69,13 +69,13 @@ Principal public types include:
 Required:
 
 ```text
-ESPressio Observable >= 3.0.2 < 4.0.0
+ESPressio Observable main
 ```
 
 Optional Event integration:
 
 ```text
-ESPressio Event >= 6.0.3 < 7.0.0
+ESPressio Event main
 ```
 
 Optional JSON integration:
@@ -96,27 +96,27 @@ See [ESPRESSIO_DEPENDENCY_CHART.md](ESPRESSIO_DEPENDENCY_CHART.md) for the compl
 
 ## Installation
 
-Core/text use with PlatformIO:
+Core/text use with PlatformIO during the release restructuring:
 
 ```ini
 lib_deps =
-    espressio-development-platform/ESPressio-Command@^1.0.3
+    https://github.com/ESPressio-Development-Platform/ESPressio-Command.git#main
 ```
 
 For JSON interpretation, add ArduinoJson 7.x explicitly:
 
 ```ini
 lib_deps =
-    espressio-development-platform/ESPressio-Command@^1.0.3
+    https://github.com/ESPressio-Development-Platform/ESPressio-Command.git#main
     bblanchon/ArduinoJson@^7.4.3
 ```
 
-When using the optional Event bridge, also include Event 6.x:
+When using the optional Event bridge, also include Event from `main`:
 
 ```ini
 lib_deps =
-    espressio-development-platform/ESPressio-Command@^1.0.3
-    espressio-development-platform/ESPressio-Event@^6.0.3
+    https://github.com/ESPressio-Development-Platform/ESPressio-Command.git#main
+    https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#main
 ```
 
 The library targets C++17 and is designed primarily for ESP32/Arduino-ESP32, while its transport-neutral core and JSON interpretation are also exercised by host-side tests.
@@ -751,7 +751,7 @@ Command Event integration
     - - -> Event
 ```
 
-Event 6.x does not depend back on Command. The ordinary Command umbrella remains Event-free:
+Event does not depend back on Command. The ordinary Command umbrella remains Event-free:
 
 ```cpp
 #include <ESPressio_Command.hpp>
@@ -825,7 +825,7 @@ Examples beneath [`examples/`](examples/) demonstrate Command registration and i
 
 Host-side tests beneath [`tests/`](tests/) exercise text parsing, typed structured invocation, conversion, validation, JSON interpretation, JSON results, discovery, registration lifetime, middleware and registry observation independently of hardware.
 
-CI additionally compiles the optional JSON adapter on ESP32 with ArduinoJson 7.x and validates the optional Event integration against released Event 6.0.3 and its released dependency chain.
+CI additionally compiles the optional JSON adapter on ESP32 with ArduinoJson 7.x and validates the optional Event integration against Event `main` and its current dependency chain.
 
 # Changelog
 
