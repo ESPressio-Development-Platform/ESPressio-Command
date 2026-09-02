@@ -14,12 +14,14 @@ int main() {
     bool state = false;
     double duty = 0.0;
     int calls = 0;
+    const CommandInvocation* lastContextInvocation = nullptr;
 
     auto& write = registry.Command("gpio").Description("GPIO").Command("write");
     write.Parameter<int>("pin").Range(0, 48);
     write.Parameter<bool>("state");
     write.Parameter<double>("duty").Optional().Default("1.0").Range(0.0, 1.0);
     write.OnExecute([&](const CommandContext& context) {
+        lastContextInvocation = &context.Invocation();
         pin = context.Get<int>("pin");
         state = context.Get<bool>("state");
         duty = context.Get<double>("duty");
@@ -27,7 +29,6 @@ int main() {
         return CommandResult::Ok("written");
     });
 
-    // Existing textual syntax remains unchanged.
     auto result = registry.Invoke("gpio write 2 high");
     assert(result.success && pin == 2 && state && duty == 1.0 && calls == 1);
 
@@ -37,7 +38,6 @@ int main() {
     result = registry.Invoke("gpio write 99 high");
     assert(!result.success && calls == 2);
 
-    // Explicit text interpreter is a facade over the same registry path.
     TextCommandInterpreter text(registry);
     result = text.Invoke("gpio write 6 on 0.25");
     assert(result.success && pin == 6 && state && std::fabs(duty - 0.25) < 0.000001 && calls == 3);
@@ -52,27 +52,46 @@ int main() {
     assert(registry.Invoke("system label \"Main Controller\"").success);
     assert(captured == "Main Controller");
 
-    // Legacy string initializer/assignment usage remains source-compatible.
     CommandInvocation stringInvocation;
     stringInvocation.path = {"gpio", "write"};
     stringInvocation.named = {{"pin", "7"}, {"state", "true"}, {"duty", "0.75"}};
     assert(registry.Invoke(stringInvocation).success);
+    assert(lastContextInvocation == &stringInvocation);
     assert(pin == 7 && state && std::fabs(duty - 0.75) < 0.000001);
 
-    // Structured callers can now preserve native scalar types.
     CommandInvocation typedInvocation;
     typedInvocation.path = {"gpio", "write"};
     typedInvocation.named["pin"] = 8;
     typedInvocation.named["state"] = false;
     typedInvocation.named["duty"] = 0.125;
     assert(registry.Invoke(typedInvocation).success);
+    assert(lastContextInvocation == &typedInvocation);
     assert(pin == 8 && !state && std::fabs(duty - 0.125) < 0.000001);
 
     assert(typedInvocation.named["pin"].GetType() == CommandValue::Type::SignedInteger);
     assert(typedInvocation.named["state"].GetType() == CommandValue::Type::Boolean);
     assert(typedInvocation.named["duty"].GetType() == CommandValue::Type::FloatingPoint);
 
-    // Raw() remains available as a normalized textual view.
+    auto assertText = [](const CommandValue& value, const char* expected) {
+        bool invoked = false;
+        const bool accepted = WithCommandValueText(
+            value,
+            [&](std::string_view rendered) {
+                invoked = true;
+                return rendered == expected;
+            }
+        );
+        assert(invoked && accepted);
+    };
+    assertText(CommandValue("hello"), "hello");
+    assertText(CommandValue(true), "true");
+    assertText(CommandValue(false), "false");
+    assertText(CommandValue(-42), "-42");
+    assertText(CommandValue(static_cast<uint64_t>(42)), "42");
+    assertText(CommandValue(0.125), "0.125");
+    assertText(CommandValue(nullptr), "null");
+    assert(!WithCommandValueText(CommandValue(7), [](std::string_view) { return false; }));
+
     auto& inspect = registry.Command("inspect");
     inspect.Parameter<int>("value");
     std::string rawValue;
@@ -89,7 +108,6 @@ int main() {
     assert(rawValue == "42");
     assert(nativeType == CommandValue::Type::SignedInteger);
 
-    // Typed validation rejects inappropriate scalar conversions.
     typedInvocation.named["pin"] = 2.5;
     assert(!registry.Invoke(typedInvocation).success);
     typedInvocation.named["pin"] = 2;
@@ -98,9 +116,11 @@ int main() {
 
     const auto completions = registry.Complete("gpio w");
     assert(completions.size() == 1 && completions[0] == "write");
-    assert(registry.Help({"gpio", "write"}).find("pin") != std::string::npos);
-    assert(registry.Resolve({"gpio", "write"}) == &write);
-    assert(registry.Resolve({"gpio", "missing"}) == nullptr);
+    CommandPath writePath{"gpio", "write"};
+    CommandPath missingPath{"gpio", "missing"};
+    assert(registry.Help(writePath).find("pin") != std::string::npos);
+    assert(registry.Resolve(writePath) == &write);
+    assert(registry.Resolve(missingPath) == nullptr);
 
     std::string lineResult;
     CommandLine line(registry);
@@ -125,9 +145,10 @@ int main() {
     }
     assert(!registry.Invoke("scoped").success);
 
-    // Middleware receives the native structured invocation unchanged.
     bool middlewareSawBoolean = false;
+    const CommandInvocation* middlewareObservedInvocation = nullptr;
     registry.Use([&](const CommandInvocation& invocation, const auto& next) {
+        middlewareObservedInvocation = &invocation;
         const auto iterator = invocation.named.find("state");
         if (iterator != invocation.named.end()) {
             middlewareSawBoolean = iterator->second.GetType() == CommandValue::Type::Boolean;
@@ -140,6 +161,9 @@ int main() {
     middlewareInvocation.named["state"] = true;
     assert(registry.Invoke(middlewareInvocation).success);
     assert(middlewareSawBoolean);
+    assert(middlewareObservedInvocation == &middlewareInvocation);
+    assert(lastContextInvocation == &middlewareInvocation);
+    assert(middlewareInvocation.named["state"].GetType() == CommandValue::Type::Boolean);
 
     return 0;
 }
