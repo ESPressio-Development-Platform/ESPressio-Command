@@ -24,10 +24,10 @@ Serial        0.8.1
 
 ```text
 Command 1.0.3
-    -> Observable >= 3.0.2 < 4.0.0
+    -> Observable main
 
 Command Event integration
-    - - -> Event >= 6.0.3 < 7.0.0
+    - - -> Event main
 ```
 
 Command owns Command-domain Event types and `CommandRegistryEventBridge`; Event does not depend back on Command. `JsonCommandInterpreter` optionally consumes external ArduinoJson 7.x, which is not an ESPressio dependency edge.
