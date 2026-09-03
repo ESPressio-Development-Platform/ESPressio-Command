@@ -1,7 +1,7 @@
 {
     "name": "ESPressio-Command",
-    "description": "Transport-neutral typed command definition, text/JSON interpretation, routing and invocation framework for ESP32 and C++17",
-    "keywords": "command,commands,cli,json,console,parser,interpreter,router,dispatcher,observable,event,espressio",
+    "description": "Transport-neutral asynchronous Command intent, typed interpretation and local dispatch framework",
+    "keywords": "command,commands,intent,cli,json,parser,interpreter,dispatcher,observable,event,espressio",
     "authors": {
         "name": "Simon J. Stuart",
         "maintainer": true,
@@ -22,7 +22,11 @@
     "dependencies": [
         {
             "name": "ESPressio-System",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-System.git#structural_realignment"
+            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-System.git#structural_realignment_propagation_ESPressio-Mesh"
+        },
+        {
+            "name": "ESPressio-Primitive",
+            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Primitive.git#structural_realignment_propagation_ESPressio-Mesh"
         },
         {
             "name": "ESPressio-Task",
@@ -34,7 +38,7 @@
         },
         {
             "name": "ESPressio-Event",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#structural_realignment",
+            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#structural_realignment_propagation_ESPressio-Mesh",
             "platforms": "espressif32"
         }
     ]
