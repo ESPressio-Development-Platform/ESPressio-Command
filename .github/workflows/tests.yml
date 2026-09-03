@@ -21,7 +21,9 @@ jobs:
       - uses: actions/checkout@v4
         with: {path: project/ESPressio-Command}
       - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-System, ref: structural_realignment, path: project/dependencies/ESPressio-System}
+        with: {repository: ESPressio-Development-Platform/ESPressio-System, ref: structural_realignment_propagation_ESPressio-Mesh, path: project/dependencies/ESPressio-System}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Primitive, ref: structural_realignment_propagation_ESPressio-Mesh, path: project/dependencies/ESPressio-Primitive}
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Task, ref: structural_realignment, path: project/dependencies/ESPressio-Task}
       - uses: actions/checkout@v4
@@ -35,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Threads, ref: structural_realignment, path: project/dependencies/ESPressio-Threads}
       - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Event, ref: structural_realignment, path: project/dependencies/ESPressio-Event}
+        with: {repository: ESPressio-Development-Platform/ESPressio-Event, ref: structural_realignment_propagation_ESPressio-Mesh, path: project/dependencies/ESPressio-Event}
       - uses: actions/setup-python@v5
         with: {python-version: '3.x'}
       - run: pip install platformio
@@ -54,6 +56,7 @@ jobs:
           lib_deps =
               bblanchon/ArduinoJson@^7.4.3
               ../dependencies/ESPressio-System
+              ../dependencies/ESPressio-Primitive
               ../dependencies/ESPressio-Task
               ../dependencies/ESPressio-Observable
               ../dependencies/ESPressio-Serializable
@@ -80,7 +83,9 @@ jobs:
       - uses: actions/checkout@v4
         with: {path: project/ESPressio-Command}
       - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-System, ref: structural_realignment, path: project/dependencies/ESPressio-System}
+        with: {repository: ESPressio-Development-Platform/ESPressio-System, ref: structural_realignment_propagation_ESPressio-Mesh, path: project/dependencies/ESPressio-System}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Primitive, ref: structural_realignment_propagation_ESPressio-Mesh, path: project/dependencies/ESPressio-Primitive}
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Task, ref: structural_realignment, path: project/dependencies/ESPressio-Task}
       - uses: actions/checkout@v4
@@ -94,7 +99,7 @@ jobs:
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Threads, ref: structural_realignment, path: project/dependencies/ESPressio-Threads}
       - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Event, ref: structural_realignment, path: project/dependencies/ESPressio-Event}
+        with: {repository: ESPressio-Development-Platform/ESPressio-Event, ref: structural_realignment_propagation_ESPressio-Mesh, path: project/dependencies/ESPressio-Event}
       - uses: actions/setup-python@v5
         with: {python-version: '3.x'}
       - run: pip install platformio
@@ -112,6 +117,7 @@ jobs:
           lib_ldf_mode = deep+
           lib_deps =
               ../dependencies/ESPressio-System
+              ../dependencies/ESPressio-Primitive
               ../dependencies/ESPressio-Task
               ../dependencies/ESPressio-Observable
               ../dependencies/ESPressio-Serializable
