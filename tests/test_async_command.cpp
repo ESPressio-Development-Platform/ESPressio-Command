@@ -1,183 +1,35 @@
 #include <cassert>
 #include <cstdint>
-#include <memory>
-#include <string>
+#include <string_view>
 
 #include "ESPressio_CommandEnvelope.hpp"
-#include "ESPressio_CommandPendingRequests.hpp"
-#include "ESPressio_CommandResponseRoute.hpp"
 
 using namespace ESPressio::Command;
 
-namespace {
-
-class TestRoute final : public ICommandResponseRoute {
-public:
-    size_t Calls = 0;
-    CommandOriginAddress LastDestination{};
-    CommandResponseEnvelope LastResponse{};
-    bool Result = true;
-
-    bool SendCommandResponse(
-        const CommandOriginAddress& destination,
-        const CommandResponseEnvelope& response
-    ) override {
-        ++Calls;
-        LastDestination = destination;
-        LastResponse = response;
-        return Result;
-    }
-};
-
-CommandOriginAddress Address(uint8_t value) {
-    CommandOriginAddress address;
-    assert(address.Assign(&value, 1));
-    return address;
-}
-
-}
-
 int main() {
-    {
-        CommandRequestEnvelope request;
-        request.RequestId = 42;
-        assert(request.SetRaw("system status"));
-        assert(request.RawString() == "system status");
+    CommandMessage message;
+    message.MessageId = CommandMessageId(42);
+    message.ProtocolVersion = 1;
+    message.Correlation = CommandCorrelationId(7);
 
-        std::string oversized(ESPRESSIO_COMMAND_MAX_RAW_LENGTH, 'x');
-        assert(!request.SetRaw(oversized));
-    }
+    assert(static_cast<bool>(message.MessageId));
+    assert(message.MessageId.Value() == 42);
+    assert(message.ProtocolVersion == 1);
+    assert(static_cast<bool>(message.Correlation));
+    assert(message.Correlation.Value() == 7);
 
-    {
-        CommandPendingRequestPool<2> pending;
-        const auto destination = Address(0x11);
+    assert(message.SetTextPayload("system status"));
+    assert(message.PayloadSize() == 13);
+    assert(message.TextPayload() == std::string_view("system status"));
 
-        assert(
-            pending.Add(1, destination, 100) ==
-            CommandPendingStatus::Success
-        );
-        assert(
-            pending.Add(1, destination, 100) ==
-            CommandPendingStatus::DuplicateRequestId
-        );
-        assert(
-            pending.Add(2, destination, 200) ==
-            CommandPendingStatus::Success
-        );
-        assert(
-            pending.Add(3, destination, 300) ==
-            CommandPendingStatus::CapacityExhausted
-        );
-        assert(pending.ActiveCount() == 2);
+    const std::uint8_t binary[] = {0x01, 0x02, 0x03, 0x04};
+    assert(message.SetPayload(binary, sizeof(binary)));
+    assert(message.PayloadSize() == sizeof(binary));
+    assert(message.PayloadData()[0] == 0x01);
+    assert(message.PayloadData()[3] == 0x04);
 
-        assert(
-            pending.Complete(1) ==
-            CommandPendingStatus::Success
-        );
-        assert(pending.ActiveCount() == 1);
-        assert(
-            pending.Complete(1) ==
-            CommandPendingStatus::NotFound
-        );
-
-        size_t expired = 0;
-        assert(
-            pending.Expire(199, [&](const CommandPendingRequest&) {
-                ++expired;
-            }) == 0
-        );
-        assert(expired == 0);
-        assert(
-            pending.Expire(200, [&](const CommandPendingRequest& request) {
-                assert(request.RequestId == 2);
-                ++expired;
-                // Expiry callbacks execute outside the pool mutex and may
-                // safely submit new work into the newly freed bounded slot.
-                assert(
-                    pending.Add(3, destination, 300) ==
-                    CommandPendingStatus::Success
-                );
-            }) == 1
-        );
-        assert(expired == 1);
-        assert(pending.ActiveCount() == 1);
-        assert(pending.Complete(3) == CommandPendingStatus::Success);
-        assert(pending.ActiveCount() == 0);
-    }
-
-    {
-        CommandPendingRequestPool<1> pending;
-        const auto destination = Address(0x22);
-        assert(
-            pending.Add(
-                7,
-                destination,
-                1000,
-                CommandResponseMode::Multiple
-            ) == CommandPendingStatus::Success
-        );
-        assert(
-            pending.Complete(7, false) ==
-            CommandPendingStatus::Success
-        );
-        assert(pending.ActiveCount() == 1);
-        assert(
-            pending.Complete(7, true) ==
-            CommandPendingStatus::Success
-        );
-        assert(pending.ActiveCount() == 0);
-    }
-
-    {
-        CommandResponseTimeoutRegistry timeouts;
-        timeouts.SetTransportDefault(250);
-        assert(timeouts.Resolve("wifi status") == 250);
-        timeouts.SetCommandDefault("wifi status", 1000);
-        assert(timeouts.Resolve("wifi status") == 1000);
-        assert(timeouts.Resolve("wifi status", 50) == 50);
-    }
-
-    {
-        auto route = std::make_shared<TestRoute>();
-        auto& routes = CommandResponseRouteRegistry::GetInstance();
-        const auto routeId = routes.Register(route);
-        assert(routeId != 0);
-
-        CommandOrigin origin;
-        origin.TransportRoute = routeId;
-        origin.Address = Address(0x33);
-
-        CommandResponseEnvelope response;
-        response.RequestId = 99;
-        response.Success = true;
-        response.Code = 0;
-        assert(response.SetMessage("done"));
-
-        assert(routes.Route(origin, response));
-        assert(route->Calls == 1);
-        assert(route->LastDestination.Length == 1);
-        assert(route->LastDestination.Bytes[0] == 0x33);
-        assert(route->LastResponse.RequestId == 99);
-        assert(route->LastResponse.MessageString() == "done");
-
-        routes.Unregister(routeId);
-        assert(!routes.Route(origin, response));
-
-        CommandOrigin local;
-        assert(local.IsLocal());
-        assert(!routes.Route(local, response));
-    }
-
-    {
-        CommandTransportRouteId routeId = 0;
-        {
-            auto route = std::make_shared<TestRoute>();
-            routeId = CommandResponseRouteRegistry::GetInstance().Register(route);
-            assert(routeId != 0);
-            assert(CommandResponseRouteRegistry::GetInstance().Resolve(routeId));
-        }
-        assert(!CommandResponseRouteRegistry::GetInstance().Resolve(routeId));
-    }
-
+    // Command is asynchronous intent. The conceptual message intentionally has
+    // no response expectation, completion/result, timeout, transport route,
+    // destination endpoint, or reply-routing field.
     return 0;
 }
