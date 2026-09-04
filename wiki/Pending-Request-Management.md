@@ -1,31 +1,15 @@
-# Pending Request Management
+# Pending Command Work
 
-Outstanding asynchronous requests are tracked by `CommandPendingRequestPool<Capacity>`.
+The current Command baseline has **no Command-owned pending-request table**.
 
-The pool is fixed-capacity and uses an array rather than an unbounded dynamic collection.
+A `CommandMessage` expresses asynchronous intent. Once a destination's local Command pipeline has interpreted, validated and dispatched that intent, Command has no intrinsic obligation to wait for application completion or correlate a later response.
 
-## Stored state
+## Where pending work belongs
 
-Each active entry records:
+If an application starts asynchronous work in response to a Command, ownership of that work belongs to the application subsystem responsible for the operation. That subsystem chooses its own bounded execution state, cancellation policy and lifetime.
 
-- request ID;
-- destination address;
-- absolute response deadline;
-- response mode;
-- response count.
+If a distributed transport is waiting for delivery confirmation, that state belongs to the transport/Mesh delivery layer rather than Command.
 
-## Add
+If later Event or State messages need to be related to the originating Command, use the optional conceptual `CorrelationId`; correlation does not create a Command request/response lifecycle.
 
-Adding can return `Success`, `DuplicateRequestId`, or `CapacityExhausted`. A transport/router must handle capacity exhaustion explicitly rather than growing memory without bound.
-
-## Completion
-
-For `Single` response mode, the first completion removes the entry. For `Multiple`, responses can increment the response count until the final response releases the entry.
-
-## Expiry
-
-`Expire(now, callback)` collects expired entries while holding the pool lock, clears them, then invokes callbacks after releasing the lock. Extension code should preserve this pattern so externally supplied callbacks never execute under the internal pool mutex.
-
-## Timeout registry memory
-
-Path-specific timeout configuration uses ESPressio System's `ExternalPreferred` memory policy for its dynamic registry entries, while the active pending-request pool itself remains statically bounded.
+This separation prevents Command from becoming an RPC/task scheduler and keeps pending-work capacity under the subsystem that actually owns the work.
