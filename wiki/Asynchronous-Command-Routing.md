@@ -1,35 +1,30 @@
 # Asynchronous Command Routing
 
-The 1.0.0 baseline supports routed command requests that may cross an asynchronous transport while preserving request identity, origin, response expectations, and timeout policy.
+A Command is asynchronous **intent**, not an RPC request.
 
-## Flow
+Command therefore defines no intrinsic response expectation, completion response, reply route, pending-request table or timeout contract. A transport or higher-level integration may carry a `CommandMessage`, but transport delivery and requested-operation completion remain separate concerns.
+
+## Conceptual flow
 
 ```mermaid
 graph LR
-  CALLER[Caller] --> REQ[CommandRequestEnvelope]
-  REQ --> TX[Transport Route]
-  TX --> EXEC[Command Execution]
-  EXEC --> RESP[CommandResponseEnvelope]
-  RESP --> ROUTE[Response Route]
-  ROUTE --> CALLER
+  CALLER[Intent producer] --> CMD[CommandMessage]
+  CMD --> TX[Transport / Mesh adapter]
+  TX --> RX[Destination Command adapter]
+  RX --> REG[CommandRegistry]
+  REG --> APP[Application callback]
 ```
 
-## Request identity
+The `CommandMessage` preserves conceptual message identity, protocol version, optional correlation and bounded Command-family payload. It does not contain a transport destination, reply route, response mode or timeout.
 
-Each routed request uses a `CommandRequestId` so responses can be correlated even when multiple requests are outstanding concurrently.
+## Delivery is not completion
 
-## Origin
+A transport may independently confirm that the Command message was delivered. That confirmation says nothing about whether the requested application operation later completed.
 
-`CommandOrigin` identifies the transport route and optional origin address. A route ID of zero represents a local origin.
+Likewise, a local `CommandResult::Ok()` means the destination's local Command pipeline accepted/succeeded according to its parser/validation/dispatch/callback contract. It is not a distributed operation-completion response.
 
-## Response semantics
+If an application needs to publish later progress, completion or resulting facts, it should do so with independent primitives such as Event or State, optionally using a `CorrelationId` to relate those messages to the originating Command.
 
-A request explicitly states whether it expects no response, an acceptance acknowledgement, or completion, and whether the response mode is single or multiple.
+## Responsibility boundary
 
-## Why this belongs in Command
-
-The semantic notion of a command request and its expected response belongs to the Command domain. The transport remains responsible for carrying bytes/messages and mapping its native addressing into the route/origin abstractions.
-
-## Bounded operation
-
-Outstanding routed requests are tracked with a fixed-capacity pool rather than an unbounded collection. See [Pending Request Management](Pending-Request-Management).
+Command owns intent semantics and local interpretation/dispatch. Mesh, Serial, HTTP, WebSocket and other transports own carriage. Any application workflow spanning multiple conceptual messages remains above Command rather than turning Command into RPC.
