@@ -1,131 +1,115 @@
 # ESPressio Command
 
-Transport-neutral, strongly typed Command definition, interpretation, routing, validation and invocation for the ESPressio Development Platform.
+Transport-neutral, strongly typed Command definition, interpretation, validation and local dispatch for the ESPressio Development Platform.
 
-ESPressio Command separates **what an application is being asked to do** from **how that request arrived**. Serial, USB CDC, TCP, WebSocket, BLE, HTTP, ESP-NOW, test harnesses and programmatic callers can therefore share the same Command tree, parameter definitions, validation and callbacks without coupling application logic to a transport or representation.
+A **Command expresses asynchronous intent**: something should be done. It does not represent an RPC request and carries no intrinsic reply route, response expectation, operation-completion result or timeout contract.
 
-## Current Version — 1.0.3
-
-During the release restructuring, Command preserves the representation-neutral typed invocation model and existing runtime behaviour while validating the optional Event integration against ESPressio Event `main` and its current dependency chain.
-
-The 1.0 generation is a major release because the exact public container types of `CommandInvocation::positional` and `CommandInvocation::named` now contain `CommandValue` rather than `std::string`. Common string assignment and initializer-list usage remains supported, but code depending on those exact container types must migrate.
-
-## Why a separate Command library?
-
-A **Command** expresses intent: **do something**.
-
-An **Event** expresses a fact: **something happened**.
-
-Keeping those concepts separate lets application code expose operations without embedding Serial, networking, protocol, UI or serialization concerns into those operations.
+This repository is participating in the ESPressio-Mesh structural-realignment tranche on branch:
 
 ```text
-Serial / USB CDC ---------> TextCommandInterpreter ----+
-TCP / WebSocket text -----> TextCommandInterpreter ----+
-HTTP / WebSocket JSON ----> JsonCommandInterpreter ----+--> CommandInvocation --> CommandRegistry --> callback
-ESP-NOW / RPC ------------> structured invocation -----+
-Programmatic / tests ------> structured invocation -----+
+structural_realignment_propagation_ESPressio-Mesh
 ```
 
-The interpreters are adapters. `CommandInvocation` is the transport- and representation-neutral contract consumed by the registry.
+The intended release-restructuring documentation baseline is **1.0.0**. Tranche work does not alter package version fields.
 
-## ESPressio Development Platform
+## Architectural role
 
-ESPressio is a collection of discrete, composable component libraries built around a common development ethos:
+Command owns the application-facing contract for defining, interpreting, validating and locally dispatching intent. It deliberately does not own transport delivery or the lifetime of the application operation initiated by that intent.
 
-- **Light-weight** — minimise memory consumption and runtime overhead without sacrificing correctness.
-- **Ease of use** — provide strongly typed, developer-friendly abstractions over lower-level facilities.
-- **Object-oriented** — a type for everything, and everything in a type.
-- **SOLID** — favour focused responsibilities, extensibility, substitutable abstractions, narrow interfaces, and dependency inversion wherever practical on embedded C++ platforms.
+```text
+Text / CLI ----------------> TextCommandInterpreter ----+
+JSON ----------------------> JsonCommandInterpreter ----+--> CommandInvocation
+Structured caller ---------------------------------------+          |
+                                                                  v
+                                                            CommandRegistry
+                                                                  |
+                                                                  v
+                                                           Command callback
 
-## License
-
-Licensed under the **Apache License 2.0**. See [LICENSE](LICENSE).
-
-## Namespace
-
-```cpp
-ESPressio::Command
+Remote producer --> CommandMessage --> Transport/Mesh adapter --> destination adapter --> CommandRegistry
 ```
 
-Principal public types include:
+A **Command** means “do something”. An **Event** means “something happened”. **State** represents authoritative/currently available information. Keeping those concepts distinct avoids turning Command into an RPC, task scheduler or transport protocol.
 
-- `CommandRegistry` — owns, resolves and invokes the Command tree.
+## Core semantics
+
+### `CommandMessage`
+
+`CommandMessage` is the bounded transport-independent representation of one conceptual Command intent. It contains:
+
+- `CommandMessageId` (`Primitive::ConceptualMessageId`);
+- Command-family protocol version;
+- optional `CorrelationId`; and
+- bounded opaque Command-family payload.
+
+It contains **no**:
+
+- transport address or Mesh destination;
+- reply/response route;
+- response expectation or response mode;
+- operation-completion contract;
+- pending-request identity; or
+- operation timeout.
+
+Transport adapters may carry a `CommandMessage`, but delivery acknowledgement belongs to the transport. Later application progress/completion belongs to independent Event or State messages. `CorrelationId` can relate those conceptual messages without making them Command responses.
+
+### `CommandResult`
+
+`CommandResult` is a **local invocation disposition** returned by the registry/callback pipeline.
+
+`result.success == true` means the local Command pipeline succeeded according to the parsing, validation, middleware, dispatch and callback contracts involved in that invocation. A callback may simply enqueue asynchronous work and return `CommandResult::Ok()` immediately.
+
+`result.success == false` means that local processing rejected or failed the invocation, for example because the path was unknown, parameters were invalid, middleware rejected it, or the callback returned an error.
+
+Neither value states whether the requested application operation later completed successfully.
+
+The public name `CommandResult` is retained; its semantics are deliberately local and transport-independent.
+
+## Principal public types
+
+- `CommandRegistry` — owns, resolves and invokes the local Command tree.
 - `CommandNode` — describes a Command or Command group.
-- `CommandParameter` — describes and validates a parameter.
+- `CommandParameter` — describes and validates one parameter.
 - `CommandValue` — representation-neutral scalar Command value.
-- `CommandContext` — exposes resolved values to a Command callback.
-- `CommandInvocation` — transport-neutral structured invocation.
-- `CommandResult` — success/error result returned by Command execution.
-- `TextCommandParser` — tokenizes human-oriented textual Command input.
-- `TextCommandInterpreter` — explicit facade for textual invocation.
-- `JsonCommandInterpreter` — optional ArduinoJson-backed JSON interpreter, result serializer and discovery adapter.
-- `CommandLine` — incrementally consumes character/buffer input.
-- `CommandFactory` — convenient registration facade.
-- `CommandRegistrationHandle` — ownership-safe scoped dynamic registration.
+- `CommandContext` — exposes validated values to a Command callback.
+- `CommandInvocation` — already-parsed transport-neutral local invocation.
+- `CommandResult` — local invocation disposition.
+- `CommandMessage` — bounded conceptual asynchronous-intent envelope.
+- `TextCommandParser` / `TextCommandInterpreter` — human-oriented text adapters.
+- `JsonCommandInterpreter` — optional ArduinoJson-backed structured adapter.
+- `CommandLine` — incremental text-input adapter.
+- `CommandFactory` — dependency-injection-friendly registry facade.
+- `CommandRegistrationHandle` — scoped dynamic-registration ownership.
 - `ICommandRegistryObserver` — synchronous registry lifecycle observation.
 
 ## Dependencies
 
-Required:
+Required ESPressio dependencies for this propagation branch are pinned to the matching structural-realignment branches by the repository manifests/workflows.
 
-```text
-ESPressio Observable main
-```
+The core Command library requires the platform abstractions and Observable facilities used by its implementation. `ESPressio-Primitive` supplies conceptual message vocabulary for `CommandMessage`.
 
-Optional Event integration:
+Optional Event integration remains optional. Optional JSON interpretation uses ArduinoJson 7.x and is included only when `ESPressio_JsonCommandInterpreter.hpp` is consumed.
 
-```text
-ESPressio Event main
-```
-
-Optional JSON integration:
-
-```text
-ArduinoJson >= 7.0.0 < 8.0.0
-```
-
-ArduinoJson is **not** a core library dependency. It is required only when an application explicitly includes:
-
-```cpp
-#include <ESPressio_JsonCommandInterpreter.hpp>
-```
-
-There is no mandatory dependency on Event, Serial, Sockets, ESP-Now, Security, ArduinoJson, or any particular input transport.
-
-See [ESPRESSIO_DEPENDENCY_CHART.md](ESPRESSIO_DEPENDENCY_CHART.md) for the complete ESPressio ecosystem graph.
-
-## Installation
-
-Core/text use with PlatformIO during the release restructuring:
+For tranche-local PlatformIO integration, use the propagation branches rather than `main`:
 
 ```ini
 lib_deps =
-    https://github.com/ESPressio-Development-Platform/ESPressio-Command.git#main
+    https://github.com/ESPressio-Development-Platform/ESPressio-System.git#structural_realignment_propagation_ESPressio-Mesh
+    https://github.com/ESPressio-Development-Platform/ESPressio-Primitive.git#structural_realignment_propagation_ESPressio-Mesh
+    https://github.com/ESPressio-Development-Platform/ESPressio-Observable.git#structural_realignment
+    https://github.com/ESPressio-Development-Platform/ESPressio-Command.git#structural_realignment_propagation_ESPressio-Mesh
 ```
 
-For JSON interpretation, add ArduinoJson 7.x explicitly:
+When the optional Event integration is used:
 
 ```ini
 lib_deps =
-    https://github.com/ESPressio-Development-Platform/ESPressio-Command.git#main
-    bblanchon/ArduinoJson@^7.4.3
+    https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#structural_realignment_propagation_ESPressio-Mesh
 ```
 
-When using the optional Event bridge, also include Event from `main`:
+Add ArduinoJson separately for JSON interpretation.
 
-```ini
-lib_deps =
-    https://github.com/ESPressio-Development-Platform/ESPressio-Command.git#main
-    https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#main
-```
-
-The library targets C++17 and is designed primarily for ESP32/Arduino-ESP32, while its transport-neutral core and JSON interpretation are also exercised by host-side tests.
-
-# Basic usage
-
-## Command trees
-
-Commands are organised hierarchically. A parent can represent a namespace or operation group while child nodes provide increasingly specific actions.
+## Basic usage
 
 ```cpp
 #include <ESPressio_Commands.hpp>
@@ -137,26 +121,29 @@ auto& commands = CommandRegistry::GetInstance();
 auto& write = commands.Command("gpio")
     .Description("GPIO operations")
     .Command("write")
-    .Description("Set a GPIO output value");
+    .Description("Request a GPIO output change");
 
 write.Parameter<int>("pin")
     .Description("GPIO pin")
     .Range(0, 48);
 
 write.Parameter<bool>("state")
-    .Description("Desired pin state");
+    .Description("Requested output state");
 
 write.OnExecute([](const CommandContext& context) {
     const int pin = context.Get<int>("pin");
     const bool state = context.Get<bool>("state");
 
-    // digitalWrite(pin, state ? HIGH : LOW);
+    // The application may apply the change immediately or enqueue asynchronous work.
+    QueueGpioChange(pin, state);
 
-    return CommandResult::Ok("GPIO updated");
+    // This means local Command handling accepted the intent; it does not promise
+    // that the hardware operation has already completed.
+    return CommandResult::Ok("GPIO change accepted");
 });
 ```
 
-All of these textual forms resolve to the same callback:
+Text forms such as:
 
 ```text
 gpio write 2 high
@@ -164,669 +151,110 @@ gpio write --pin 2 --state high
 gpio write --pin=2 --state=high
 ```
 
-The same callback can also be reached through typed structured input or JSON. The Command definition is therefore the authoritative contract rather than any particular input syntax.
+resolve to the same Command definition. Structured and JSON callers use the same registry contract.
 
 ## Parameters and validation
 
-Parameters can be:
+Parameters may be strongly typed as string, boolean, signed integer, unsigned integer, floating point or enumeration. They may be positional or named, required or optional, aliased, defaulted, range-constrained, choice-constrained and/or checked by custom validation.
 
-- strongly typed as string, boolean, signed integer, unsigned integer, floating point, or enumeration;
-- positional, named-only, or supplied by name;
-- required or optional;
-- assigned defaults;
-- given aliases;
-- range constrained;
-- constrained to a set of permitted values; and
-- checked by a custom validator.
-
-For example:
-
-```cpp
-auto& mode = commands.Command("gpio")
-    .Command("mode");
-
-mode.Parameter<int>("pin")
-    .Range(0, 48);
-
-mode.Parameter("mode", ParameterKind::Enumeration)
-    .OneOf({"in", "out", "pullup", "pulldown"});
-```
-
-Resolved values are exposed through `CommandContext`:
-
-```cpp
-const int pin = context.Get<int>("pin");
-const bool state = context.Get<bool>("state");
-```
-
-Validation happens before the Command callback executes, keeping parsing and input validation out of application logic.
-
-## `CommandValue`: the common structured value model
-
-Command 1.0.0 makes structured invocation genuinely representation-neutral. `CommandValue` can retain these scalar forms:
-
-```text
-null
-string
-boolean
-signed integer
-unsigned integer
-floating point
-```
-
-Normal Command parameters intentionally remain scalar. Structured objects and arrays are not silently flattened into strings.
-
-A typed structured caller can therefore write:
-
-```cpp
-CommandInvocation invocation;
-invocation.path = {"gpio", "write"};
-invocation.named["pin"] = 2;
-invocation.named["state"] = true;
-
-const auto result = commands.Invoke(invocation);
-```
-
-instead of first converting everything to text.
-
-Existing string-style assignment remains valid:
-
-```cpp
-invocation.named["pin"] = "2";
-invocation.named["state"] = "high";
-```
-
-Inside a callback, `Get<T>()` performs the appropriate checked conversion:
-
-```cpp
-const int pin = context.Get<int>("pin");
-```
-
-For integrations that care about the original structured scalar type, use:
-
-```cpp
-const CommandValue& value = context.Value("pin");
-
-if (value.GetType() == CommandValue::Type::SignedInteger) {
-    // The structured caller supplied a signed integer value.
-}
-```
-
-`Raw()` remains available as a normalized string view for compatibility and text-oriented tooling:
-
-```cpp
-const std::string& raw = context.Raw("pin");
-```
-
-## Automatic help
-
-Help is generated from the same metadata used to define and resolve Commands:
-
-```text
-help
-help gpio
-help gpio write
-```
-
-It can also be generated programmatically:
-
-```cpp
-auto text = commands.Help({"gpio", "write"});
-```
-
-Descriptions, parameters, required/optional state, and defaults therefore remain aligned with the executable Command definition.
-
-## Completion and typo suggestions
-
-Registered metadata can be used for completion:
-
-```cpp
-auto matches = commands.Complete("gpio w");
-```
-
-Unknown textual Command names are compared with registered siblings and a nearby Command can be suggested. Hidden Commands are omitted from completion results.
+Validation occurs before the primary callback is invoked. Unknown paths/parameters, missing required values and conversion/validation failures return a failed local `CommandResult`.
 
 ## Structured invocation
 
-Text parsing is an adapter rather than the core Command contract. Other input mechanisms can invoke the registry directly:
-
 ```cpp
 CommandInvocation invocation;
 invocation.path = {"gpio", "write"};
 invocation.named["pin"] = 2;
 invocation.named["state"] = true;
 
-auto result = commands.Invoke(invocation);
+CommandResult result = commands.Invoke(invocation);
 ```
 
-This is the intended integration point for Serial adapters, HTTP endpoints, WebSocket messages, BLE services, ESP-NOW/RPC mechanisms, automated tests, and other structured callers.
+`CommandValue` preserves scalar types instead of flattening every structured value into text.
 
-The registry also exposes read-only path resolution for discovery/integration tools:
-
-```cpp
-const CommandNode* node = commands.Resolve({"gpio", "write"});
-```
-
-and read-only access to the root metadata node:
-
-```cpp
-const CommandNode& root = commands.Root();
-```
-
-## `CommandFactory`: small facade for modules and tests
-
-`CommandFactory` is a lightweight public facade over a `CommandRegistry`. It is useful when a component should receive a command-facing dependency rather than reaching for the process-wide registry directly.
-
-```cpp
-#include <ESPressio_CommandFactory.hpp>
-
-using namespace ESPressio::Command;
-
-CommandRegistry localRegistry;
-CommandFactory factory(localRegistry);
-
-factory.Command("ping")
-    .Description("Health check")
-    .OnExecute([](const CommandContext&) {
-        return CommandResult::Ok("pong");
-    });
-
-auto result = factory.Invoke("ping");
-```
-
-If no registry is supplied, the factory uses `CommandRegistry::GetInstance()`:
-
-```cpp
-CommandFactory factory;
-auto& registry = factory.Registry();
-```
-
-Both textual and structured `CommandInvocation` forms can be invoked through the facade. This makes it particularly convenient for dependency-injected modules and host tests using an isolated registry.
-
-# Text interpretation
-
-The existing text path remains available directly:
-
-```cpp
-auto result = commands.Invoke("gpio write --pin 2 --state high");
-```
-
-Command 1.0.0 also names that adapter explicitly:
+## Text interpretation
 
 ```cpp
 #include <ESPressio_TextCommandInterpreter.hpp>
 
 TextCommandInterpreter text(commands);
-auto result = text.Invoke("gpio write 2 high");
+CommandResult result = text.Invoke("gpio write 2 high");
 ```
 
-`TextCommandParser` remains the tokenizer used for human-oriented syntax. The interpreter facade is useful when a component should depend on an explicit interpretation role rather than call the registry's convenience overload directly.
+The text parser supports quoting and escaping while remaining an adapter over the same local invocation contract.
 
-## Quoting and escaping
-
-The text parser supports whitespace-separated arguments, single-quoted values, double-quoted values, and backslash escaping:
-
-```text
-system label "Main Controller"
-system label 'Bench Unit'
-```
-
-Textual convenience never becomes a requirement for structured callers.
-
-## Incremental text input
-
-`CommandLine` accepts characters or buffers and submits complete lines to a registry. It deliberately knows nothing about Serial itself:
-
-```cpp
-CommandLine input(commands);
-
-input.OnResult([](const CommandResult& result) {
-    // The owning transport decides how to present result.message.
-});
-
-input.Feed(receivedCharacter);
-```
-
-A Serial, USB CDC, socket, or other adapter can therefore feed received bytes into the Command layer while retaining ownership of its stream/connection and output formatting.
-
-# JSON interpretation
-
-`JsonCommandInterpreter` is designed for machine-oriented transports such as HTTP, WebSocket, ESP-NOW gateways and RPC endpoints.
-
-It is deliberately optional:
+## JSON interpretation
 
 ```cpp
 #include <ESPressio_JsonCommandInterpreter.hpp>
 
 JsonCommandInterpreter json(commands);
-```
-
-Including this header requires ArduinoJson 7.x. The normal Command headers and `ESPressio_Commands.hpp` do not include ArduinoJson.
-
-## Canonical JSON command form
-
-The preferred form uses an explicit path array and a `parameters` object:
-
-```json
-{
+CommandResult result = json.Invoke(R"({
   "path": ["gpio", "write"],
   "parameters": {
     "pin": 2,
     "state": true
   }
-}
+})");
 ```
 
-Invoke it directly:
+The JSON result representation serializes the **local Command disposition**. A JSON `"success": true` must not be interpreted as distributed application-operation completion.
 
-```cpp
-const std::string request = R"({
-  "path": ["gpio", "write"],
-  "parameters": {
-    "pin": 2,
-    "state": true
-  }
-})";
+## Asynchronous application workflows
 
-CommandResult result = json.Invoke(request);
-```
+A callback that starts long-running work should return after local handling rather than blocking Command until the work finishes.
 
-JSON scalar types are preserved while the invocation moves through the registry:
+For example:
 
 ```text
-2       -> signed/unsigned integer CommandValue
-true    -> boolean CommandValue
-12.5    -> floating-point CommandValue
-"text"  -> string CommandValue
+CommandMessage (CorrelationId X)
+    -> destination accepts/dispatches intent
+    -> CommandResult::Ok()       [local disposition]
+    -> application performs work asynchronously
+    -> Event(... CorrelationId X) / State update   [later independent fact]
 ```
 
-The Command parameter definition remains authoritative for validation and conversion.
+The transport may separately acknowledge delivery of the Command message. That is also independent of application completion.
 
-## Convenience `command` form
+## Middleware
 
-For simpler producers, a textual path can be supplied while parameters remain structured:
+Middleware may inspect an invocation and decide whether/when to call the next local stage. Its returned `CommandResult` has the same local-disposition semantics. Authentication/authorization adapters may therefore reject an invocation locally without inventing a Command response protocol.
 
-```json
-{
-  "command": "gpio write",
-  "parameters": {
-    "pin": 2,
-    "state": true
-  }
-}
-```
+## Help, completion and discovery
 
-Exactly one of `path` or `command` must be supplied.
-
-`command` is tokenized using the same `TextCommandParser` path rules, but parameter values are still taken directly from JSON rather than being flattened into a textual command line.
-
-## Named and positional parameters
-
-`parameters` is the preferred name for JSON named arguments. `named` is accepted as an equivalent structural alias:
-
-```json
-{
-  "path": ["gpio", "write"],
-  "named": {
-    "pin": 2,
-    "state": true
-  }
-}
-```
-
-Do not supply both `parameters` and `named` in the same request.
-
-Positional values are supported explicitly:
-
-```json
-{
-  "path": ["gpio", "write"],
-  "positional": [2, true]
-}
-```
-
-A request may use positional and named parameters together when the Command definition permits it.
-
-## Scalar-only parameter rule
-
-The current public Command parameter model is scalar, so the JSON interpreter accepts:
-
-```text
-string
-boolean
-integer
-floating point
-```
-
-and rejects JSON object, array and null parameter values.
-
-For example, this is intentionally invalid:
-
-```json
-{
-  "path": ["gpio", "write"],
-  "parameters": {
-    "pin": {"number": 2},
-    "state": true
-  }
-}
-```
-
-Rejecting unsupported shapes is safer than silently serializing them into strings with representation-dependent semantics.
-
-## Parse without invoking
-
-Adapters that need inspection, authorization or routing before execution can parse independently:
+Help and completion are generated from the same metadata used by the registry:
 
 ```cpp
-CommandInvocation invocation;
-std::string error;
-
-if (json.Parse(request, invocation, &error)) {
-    // Inspect/authorize invocation, then invoke when appropriate.
-    CommandResult result = commands.Invoke(invocation);
-}
+auto help = commands.Help({"gpio", "write"});
+auto matches = commands.Complete("gpio w");
 ```
 
-The resulting `CommandInvocation` carries native `CommandValue` instances.
+Hidden Commands are omitted from completion/discovery output.
 
-## JSON results
+## Extending Command
 
-`CommandResult` remains the representation-neutral result object:
+Extensions should preserve the following boundaries:
 
-```cpp
-CommandResult result = json.Invoke(request);
-```
+- keep Command definitions transport-neutral;
+- keep hardware/platform calls outside Command itself;
+- do not introduce reply routes, response expectations or pending-request tables into the Command domain;
+- keep asynchronous application work owned by the responsible application subsystem;
+- use Event/State for later facts rather than a Command completion response;
+- use `CorrelationId` only as conceptual-message association, not as an RPC handle;
+- keep optional integrations optional; and
+- keep all resource usage finite/bounded for embedded targets.
 
-For a JSON-speaking transport, serialize it directly:
+## Documentation
 
-```cpp
-std::string response = JsonCommandInterpreter::SerializeResult(result);
-```
+The repository Wiki is split between consuming-developer usage and extension/integration architecture. In particular:
 
-or perform both operations in one call:
+- **Results and Errors** defines `CommandResult` local-disposition semantics.
+- **Asynchronous Command Routing** explains transport carriage without RPC semantics.
+- **Command Message Envelope** documents the current `CommandMessage` contract.
+- **Delivery, Completion and Timeouts** explains the ownership separation between transport delivery and application-operation lifetime.
+- **Transport Integration and Correlation** explains why Command has no reply route.
+- **Pending Command Work** explains why pending application work is not Command-owned.
 
-```cpp
-std::string response = json.InvokeToJson(request);
-```
+## License
 
-A successful result has this shape:
-
-```json
-{
-  "success": true,
-  "code": 0,
-  "message": "GPIO updated"
-}
-```
-
-An error uses the same stable envelope:
-
-```json
-{
-  "success": false,
-  "code": 1,
-  "message": "Value for 'pin' is outside the allowed range"
-}
-```
-
-The transport can therefore return Command results without scraping human console text.
-
-## JSON Command discovery
-
-Because `CommandRegistry` already owns descriptions, parameter types, defaults, ranges, aliases, choices, visibility and deprecation metadata, the JSON interpreter can expose that information directly.
-
-Describe the visible root Command tree:
-
-```cpp
-std::string schema = json.Describe();
-```
-
-Describe one Command:
-
-```cpp
-std::string schema = json.Describe({"gpio", "write"});
-```
-
-A Command description is shaped like:
-
-```json
-{
-  "success": true,
-  "path": ["gpio", "write"],
-  "command": {
-    "name": "write",
-    "description": "Set a GPIO output value",
-    "executable": true,
-    "hidden": false,
-    "deprecated": false,
-    "parameters": [
-      {
-        "name": "pin",
-        "description": "GPIO pin",
-        "type": "signed-integer",
-        "required": true,
-        "namedOnly": false,
-        "minimum": 0,
-        "maximum": 48
-      },
-      {
-        "name": "state",
-        "description": "Desired pin state",
-        "type": "boolean",
-        "required": true,
-        "namedOnly": false
-      }
-    ]
-  }
-}
-```
-
-Hidden Commands are omitted by default. Privileged/internal tooling can explicitly request them:
-
-```cpp
-std::string completeSchema = json.Describe({}, true);
-```
-
-This allows a web UI, desktop controller or another embedded device to build forms and capability views from the same metadata used by the executable Command definitions.
-
-# Middleware and interception
-
-Cross-cutting behaviour can wrap invocation:
-
-```cpp
-commands.Use([](const CommandInvocation& invocation, const auto& next) {
-    // Authorization, audit, rate limiting, tracing, etc.
-    return next();
-});
-```
-
-With structured/JSON callers, middleware receives the original typed `CommandValue` instances rather than a lossy text conversion.
-
-Individual Commands can also register `Before(...)` and `After(...)` callbacks. These extension points allow policy and diagnostics to be layered around Command execution without coupling those concerns to the Command callback itself.
-
-# Aliases, visibility and deprecation
-
-Aliases avoid duplicate callback definitions:
-
-```cpp
-commands.Command("diagnostics")
-    .Alias("diag")
-    .Description("Diagnostic commands");
-```
-
-Commands can be marked deprecated:
-
-```cpp
-commands.Command("old-command")
-    .Deprecated("Use 'new-command' instead");
-```
-
-Hidden Commands remain resolvable but are omitted from generated text help/completion and JSON discovery unless explicitly requested.
-
-# Command results
-
-Callbacks return `CommandResult`, providing a transport-neutral success state, numeric code, and optional message:
-
-```cpp
-return CommandResult::Ok("GPIO updated");
-```
-
-or:
-
-```cpp
-return CommandResult::Error("GPIO update failed", 5);
-```
-
-The adapter decides how to represent the result: a console can print the message, while JSON, HTTP or RPC can map it into a structured response.
-
-# Dynamic registration lifetime
-
-`CommandRegistrationHandle` allows a dynamically owned Command registration to be removed when its owning scope ends. Successful registration/unregistration changes flow through the same registry lifecycle notification surface described below.
-
-This is useful for plug-in style application modules that expose Commands only while the module exists.
-
-# Registry observation
-
-`CommandRegistry` exposes its topology changes through `ICommandRegistryObserver`.
-
-```cpp
-class RegistryObserver final :
-    public ESPressio::Command::ICommandRegistryObserver {
-public:
-    void OnCommandRegistered(
-        const std::vector<std::string>& path
-    ) override {
-        // Passive diagnostics/discovery refresh.
-    }
-
-    void OnCommandUnregistered(
-        const std::vector<std::string>& path
-    ) override {
-        // Owned registration lifetime ended.
-    }
-};
-
-RegistryObserver observer;
-auto observerHandle = commands.RegisterObserver(&observer);
-```
-
-Only successful topology changes emit notifications. Duplicate registration attempts that do not modify the tree do not emit. Scoped `CommandRegistrationHandle` cleanup follows the same successful-unregistration path.
-
-# Optional Event integration
-
-Command continues to own its own Event integration:
-
-```cpp
-#include <ESPressio_CommandEvents.hpp>
-#include <ESPressio_CommandRegistryEventBridge.hpp>
-```
-
-It converts the synchronous registry facts into asynchronous:
-
-```text
-CommandRegisteredEvent
-CommandUnregisteredEvent
-```
-
-Initialize the bridge when that asynchronous representation is wanted:
-
-```cpp
-#include <ESPressio_Command.hpp>
-#include <ESPressio_CommandRegistryEventBridge.hpp>
-
-void setup() {
-    ESPressio::Event::CommandRegistryEventBridge::
-        GetInstance().Initialize();
-}
-```
-
-The integration is deliberately one-way:
-
-```text
-Command core
-    -> Observable
-
-Command Event integration
-    - - -> Event
-```
-
-Event does not depend back on Command. The ordinary Command umbrella remains Event-free:
-
-```cpp
-#include <ESPressio_Command.hpp>
-```
-
-JSON support is independent of this Event integration. Selecting one optional adapter does not imply the other.
-
-# Migrating from 0.4.x to 1.0.0
-
-The significant change is the exact type of structured invocation values.
-
-Previously:
-
-```cpp
-std::vector<std::string> positional;
-std::map<std::string, std::string> named;
-```
-
-Now:
-
-```cpp
-std::vector<CommandValue> positional;
-std::map<std::string, CommandValue> named;
-```
-
-Most ordinary call sites continue to compile unchanged:
-
-```cpp
-CommandInvocation invocation;
-invocation.named["pin"] = "2";
-invocation.named["state"] = "high";
-```
-
-Initializer lists of textual values also remain supported:
-
-```cpp
-invocation.named = {
-    {"pin", "2"},
-    {"state", "true"}
-};
-```
-
-New structured integrations should preserve their native types:
-
-```cpp
-invocation.named["pin"] = 2;
-invocation.named["state"] = true;
-invocation.named["threshold"] = 12.5;
-```
-
-Code that explicitly names, returns, accepts, iterates as, or stores references to `std::map<std::string, std::string>` / `std::vector<std::string>` for these two members must update to the `CommandValue` equivalents.
-
-`CommandContext::Raw()` remains available for consumers that need the normalized textual representation. `CommandContext::Value()` exposes the native structured value.
-
-# Design principles
-
-ESPressio Command is intentionally built around a small number of architectural rules:
-
-1. **Commands describe intent, not transport.**
-2. **Command definitions are the authoritative source of metadata and validation.**
-3. **`CommandInvocation` is the representation-neutral invocation contract.**
-4. **Application callbacks receive validated, typed values.**
-5. **Text and JSON are adapters, not competing Command models.**
-6. **Optional representation/protocol adapters must not become mandatory core dependencies.**
-7. **Cross-cutting behaviour belongs in middleware or focused hooks rather than application callbacks.**
-8. **Registry lifecycle is synchronously observable, with Event representation remaining opt-in.**
-
-# Examples and testing
-
-Examples beneath [`examples/`](examples/) demonstrate Command registration and invocation in Arduino/ESP32 applications.
-
-Host-side tests beneath [`tests/`](tests/) exercise text parsing, typed structured invocation, conversion, validation, JSON interpretation, JSON results, discovery, registration lifetime, middleware and registry observation independently of hardware.
-
-CI additionally compiles the optional JSON adapter on ESP32 with ArduinoJson 7.x and validates the optional Event integration against Event `main` and its current dependency chain.
-
-# Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for release history and notable changes.
+Licensed under the Apache License 2.0. See [LICENSE](LICENSE).
