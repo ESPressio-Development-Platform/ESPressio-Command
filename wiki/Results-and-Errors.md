@@ -1,19 +1,23 @@
 # Results and Errors
 
-Command execution returns a representation-neutral `CommandResult`.
+`CommandResult` is the representation-neutral **local invocation disposition** returned by the Command registry and its callbacks.
 
-A result communicates whether execution succeeded, an application/library result code, and a human-readable message where appropriate.
+It reports whether local Command processing accepted/succeeded or failed, an application/library disposition code, and an optional human-readable diagnostic. It does **not** represent completion of the operation requested by the Command.
 
-## Separation from transport responses
+## What `success` means
 
-`CommandResult` describes the outcome of command execution. A remote transport may then adapt that result into a `CommandResponseEnvelope`, JSON object, text line, HTTP response, or another representation.
+`success == true` means the local invocation pipeline completed successfully according to the parser, validation, middleware, dispatch and callback contracts involved in that invocation. A callback may merely enqueue or initiate asynchronous application work and return `CommandResult::Ok()` immediately.
 
-Do not make command callbacks construct transport-specific responses.
+`success == false` means the local Command pipeline rejected or failed the invocation, for example because the path is unknown, validation failed, middleware rejected it, or the callback returned an error.
+
+Neither value states whether an asynchronously requested real-world/application operation later completed successfully.
+
+## Separation from transport and operation outcomes
+
+A transport may represent a `CommandResult` as JSON, text, HTTP status or another local adapter representation, but that representation must preserve the same local-disposition meaning. Command has no intrinsic response envelope, reply route, completion response or timeout contract.
+
+Applications that need later progress or completion information publish that information independently through the appropriate ESPressio primitive, such as Event or State, optionally correlated through a conceptual `CorrelationId`.
 
 ## Validation failures
 
-Unknown command paths, missing/invalid parameters, failed conversion, and custom validation errors are resolved before the command callback executes.
-
-## Asynchronous requests
-
-For remote asynchronous routing, the result is correlated back to the originating request using `CommandRequestId`. See [Request and Response Envelopes](Request-and-Response-Envelopes).
+Unknown command paths, missing/invalid parameters, failed conversion and custom validation failures are normally returned before the primary callback is invoked.
