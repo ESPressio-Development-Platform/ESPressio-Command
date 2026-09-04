@@ -1,31 +1,17 @@
-# Response Expectations and Timeouts
+# Delivery, Completion and Timeouts
 
-A routed request explicitly declares what kind of response the caller expects.
+Command defines **no intrinsic response expectation or operation timeout**.
 
-## Expectations
+A Command expresses asynchronous intent. The Command family therefore does not encode “no response”, “acceptance response”, “completion response”, single/multiple response mode, or a reply timeout.
 
-| Expectation | Meaning |
-| --- | --- |
-| `None` | The caller does not require a response. |
-| `Acceptance` | The caller requires acknowledgement that the request was accepted/routed. |
-| `Completion` | The caller requires the eventual command completion result. |
+## Delivery timeout
 
-## Response mode
+A transport may impose a finite deadline while attempting to deliver a Command message. That deadline belongs to the transport/Mesh delivery operation and says nothing about how long the requested application operation may take.
 
-`Single` expects one final response. `Multiple` permits more than one response before the final completion signal releases the pending request.
+## Application-operation lifetime
 
-## Timeout resolution
+If an application starts work in response to a Command, the responsible application subsystem owns any operation deadline, watchdog, cancellation or progress policy. Command does not wait for that work.
 
-`CommandResponseTimeoutRegistry` resolves timeouts using this precedence:
+## Later information
 
-1. per-request/instance override when non-zero;
-2. command-path-specific default when configured;
-3. transport default.
-
-The transport default is 100 milliseconds in the current 1.0.0 implementation unless changed by the integrating application.
-
-## Expiry
-
-Outstanding requests record an absolute deadline. Expiry removes timed-out entries from the bounded pending pool before callbacks are invoked, avoiding calling external code while the pool mutex is held.
-
-Transport integrations should surface timeout as an explicit command-routing outcome rather than silently discarding the request.
+Applications that need later progress/completion notifications should publish independent Event or State messages as appropriate. An optional `CorrelationId` can relate those conceptual messages to the originating Command without creating RPC semantics.
