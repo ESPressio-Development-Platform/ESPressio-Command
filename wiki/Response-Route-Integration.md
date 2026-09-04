@@ -1,30 +1,17 @@
-# Response Route Integration
+# Transport Integration and Correlation
 
-Remote command responses return through `ICommandResponseRoute` implementations registered with `CommandResponseRouteRegistry`.
+Command has no intrinsic response route.
 
-```cpp
-class ICommandResponseRoute {
-public:
-    virtual ~ICommandResponseRoute() = default;
-    virtual bool SendCommandResponse(
-        const CommandOriginAddress& destination,
-        const CommandResponseEnvelope& response
-    ) = 0;
-};
-```
+A `CommandMessage` is transport-independent asynchronous intent. It does not store a return transport, source address, reply endpoint or response-routing token.
 
-## Registration
+## Transport responsibility
 
-A transport creates a shared route object and registers it. The registry assigns a non-zero `CommandTransportRouteId`; zero is reserved for local origin semantics.
+Serial, HTTP, WebSocket, Mesh and other integrations decide how a Command reaches a destination. Any transport acknowledgement remains a transport concern and is not represented as a Command response.
 
-The registry stores weak ownership, so route registration does not artificially extend the transport object's lifetime. Expired routes are pruned during resolution.
+## Application workflow responsibility
 
-## Routing
+If an application later emits progress, completion or resulting facts, those are independent conceptual messages, normally Event or State. Where useful, the originating Command's optional `CorrelationId` may be propagated into those messages.
 
-`Route(origin, response)` resolves the route ID and passes the destination address plus response envelope back to the transport adapter.
+Correlation is deliberately weaker than a reply route: it associates conceptual work without requiring the producer of the later message to know how the original Command arrived.
 
-The adapter then translates those portable values into its native peer/session addressing and framing.
-
-## Lifetime rule
-
-Unregister routes during deterministic transport teardown. Weak ownership protects against stale strong references, but explicit lifecycle management keeps route IDs and transport state aligned.
+This keeps Command reusable across transports and prevents transport addressing from leaking into the Command domain.
