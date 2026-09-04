@@ -2,9 +2,9 @@
 
 > Documentation baseline: **1.0.0**
 
-ESPressio Command provides transport-neutral, strongly typed Command definition, interpretation, routing, validation and invocation for the ESPressio Development Platform.
+ESPressio Command provides transport-neutral, strongly typed Command definition, interpretation, validation and local invocation for the ESPressio Development Platform.
 
-A Command expresses **intent**: something should be done. This is intentionally distinct from an Event, which expresses that something happened, and State, which represents currently available information.
+A Command expresses **asynchronous intent**: something should be done. This is intentionally distinct from Event, which expresses that something happened, and State, which represents authoritative/currently available information.
 
 ## Architectural role
 
@@ -18,13 +18,15 @@ graph LR
   INV --> REG[CommandRegistry]
   REG --> CB[Command Callback]
 
-  REMOTE[Remote Transport] --> ENV[CommandRequestEnvelope]
-  ENV --> ROUTE[Async Routing / Executor]
-  ROUTE --> REG
-  ROUTE --> RESP[CommandResponseEnvelope]
+  PRODUCER[Remote producer] --> MSG[CommandMessage]
+  MSG --> TX[Transport / Mesh adapter]
+  TX --> RX[Destination adapter]
+  RX --> REG
 ```
 
-The transport and representation adapters are separate from the authoritative Command definition and registry.
+`CommandMessage` carries conceptual identity, protocol version, optional correlation and bounded Command-family payload. It deliberately has no reply route, response expectation, completion response or timeout contract.
+
+The transport and representation adapters remain separate from the authoritative Command definition and registry. Transport delivery acknowledgement, when provided, is not application-operation completion.
 
 ## Choose your documentation path
 
@@ -40,19 +42,21 @@ The transport and representation adapters are separate from the authoritative Co
 - [Results and Errors](Results-and-Errors)
 - [Help Completion and Discovery](Help-Completion-and-Discovery)
 - [Asynchronous Command Routing](Asynchronous-Command-Routing)
-- [Request and Response Envelopes](Request-and-Response-Envelopes)
-- [Response Expectations and Timeouts](Response-Expectations-and-Timeouts)
+- [Command Message Envelope](Request-and-Response-Envelopes)
+- [Delivery, Completion and Timeouts](Response-Expectations-and-Timeouts)
 
 ### Extending the library
 
 - [Extension Architecture](Extension-Architecture)
 - [Interpreter Integration](Interpreter-Integration)
 - [Transport Integration](Transport-Integration)
-- [Response Route Integration](Response-Route-Integration)
-- [Pending Request Management](Pending-Request-Management)
+- [Transport Integration and Correlation](Response-Route-Integration)
+- [Pending Command Work](Pending-Request-Management)
 - [Event Integration](Event-Integration)
 - [Testing Command Extensions](Testing-Command-Extensions)
 
 ## Core principle
 
-Application command callbacks should not know whether a request arrived over Serial, HTTP, WebSocket, ESP-NOW, another transport, or directly from a test. The Command definition is the contract; the transport is an adapter.
+Application Command callbacks should not know whether an intent arrived over Serial, HTTP, WebSocket, Mesh, another transport or directly from a test. Their returned `CommandResult` is a **local invocation disposition**, not a promise that the requested application operation has completed.
+
+Applications needing later progress or completion information publish independent Event or State messages, optionally using `CorrelationId` to relate those messages to the originating Command.
