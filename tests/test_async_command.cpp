@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string_view>
 
+#include "ESPressio_Command.hpp"
 #include "ESPressio_CommandEnvelope.hpp"
 
 using namespace ESPressio::Command;
@@ -31,5 +32,33 @@ int main() {
     // Command is asynchronous intent. The conceptual message intentionally has
     // no response expectation, completion/result, timeout, transport route,
     // destination endpoint, or reply-routing field.
+
+    // CommandResult is only the disposition of local parsing/validation/
+    // middleware/dispatch/handler acceptance. It is not the completion result
+    // of the application operation initiated by the Command.
+    CommandRegistry registry;
+    bool applicationOperationCompleted = false;
+    registry.Command("start")
+        .OnExecute([&](const CommandContext&) {
+            // A real callback could enqueue work here. Deliberately leave the
+            // application operation incomplete while accepting local handling.
+            return CommandResult::Ok("accepted locally");
+        });
+
+    const CommandResult accepted = registry.Invoke("start");
+    assert(accepted.success);
+    assert(accepted.code == 0);
+    assert(!applicationOperationCompleted);
+
+    registry.Command("reject")
+        .OnExecute([](const CommandContext&) {
+            return CommandResult::Error("local handler rejected intent", 17);
+        });
+
+    const CommandResult rejected = registry.Invoke("reject");
+    assert(!rejected.success);
+    assert(rejected.code == 17);
+    assert(!applicationOperationCompleted);
+
     return 0;
 }
