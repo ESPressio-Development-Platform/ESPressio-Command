@@ -35,7 +35,7 @@ A **Command** means “do something”. An **Event** means “something happened
 
 ### `CommandMessage`
 
-`CommandMessage` is the bounded transport-independent representation of one conceptual Command intent. It contains:
+`CommandMessage` is the bounded transport-independent representation of one conceptual Command intent. Its stable primitive family is `CommandFamilyId` (`0x0002`). It contains:
 
 - `CommandMessageId` (`Primitive::ConceptualMessageId`);
 - Command-family protocol version;

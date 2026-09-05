@@ -8,6 +8,8 @@
 using namespace ESPressio::Command;
 
 int main() {
+    static_assert(CommandFamilyId == Primitive::FamilyIds::Command);
+
     CommandMessage message;
     message.MessageId = CommandMessageId(42);
     message.ProtocolVersion = 1;

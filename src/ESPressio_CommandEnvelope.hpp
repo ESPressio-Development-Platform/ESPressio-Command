@@ -24,6 +24,9 @@ using CommandCorrelationId = Primitive::CorrelationId;
 /// <summary>Protocol revision of the Command-family payload contract.</summary>
 using CommandProtocolVersion = Primitive::PrimitiveProtocolVersion;
 
+/// <summary>Stable ESPressio primitive-family identifier for Command messages.</summary>
+inline constexpr Primitive::PrimitiveFamilyId CommandFamilyId = Primitive::FamilyIds::Command;
+
 /// <summary>
 /// Bounded transport-independent representation of one asynchronous Command intent.
 /// </summary>
