@@ -42,21 +42,25 @@ inline void AppendLine(CommandString& target, std::string_view value) {
 
 } // namespace Detail
 
-/// <summary>Result returned by command callbacks and registry invocation.</summary>
+/// <summary>Local invocation disposition returned by command callbacks and registry invocation.</summary>
+/// <remarks>
+/// This result describes only whether the local Command framework accepted/handled the invocation. It is not an
+/// application-operation completion result, RPC response, remote-delivery acknowledgement, or transport outcome.
+/// </remarks>
 struct CommandResult {
-    /// <summary>Indicates whether the command completed successfully.</summary>
+    /// <summary>Indicates whether local command handling accepted/succeeded for this invocation.</summary>
     bool success{true};
-    /// <summary>Application-defined result code; zero represents success by convention.</summary>
+    /// <summary>Application-defined local invocation disposition code; zero represents local success by convention.</summary>
     int code{0};
-    /// <summary>Optional human-readable result or diagnostic message retained in externally preferred storage.</summary>
+    /// <summary>Optional human-readable local invocation result or diagnostic retained in externally preferred storage.</summary>
     CommandString message;
 
-    /// <summary>Creates a successful command result from borrowed text.</summary>
+    /// <summary>Creates a successful local invocation disposition from borrowed text.</summary>
     static CommandResult Ok(std::string_view message = {}) {
         return {true, 0, MakeCommandString(message)};
     }
 
-    /// <summary>Creates a successful command result from exact externally preferred Command text, preserving move ownership for rvalues.</summary>
+    /// <summary>Creates a successful local invocation disposition from exact externally preferred Command text, preserving move ownership for rvalues.</summary>
     template<
         typename TString,
         std::enable_if_t<
@@ -71,12 +75,12 @@ struct CommandResult {
         return {true, 0, std::forward<TString>(message)};
     }
 
-    /// <summary>Creates a failed command result from borrowed text.</summary>
+    /// <summary>Creates a failed local invocation disposition from borrowed text.</summary>
     static CommandResult Error(std::string_view message, int code = 1) {
         return {false, code, MakeCommandString(message)};
     }
 
-    /// <summary>Creates a failed command result from exact externally preferred Command text, preserving move ownership for rvalues.</summary>
+    /// <summary>Creates a failed local invocation disposition from exact externally preferred Command text, preserving move ownership for rvalues.</summary>
     template<
         typename TString,
         std::enable_if_t<
@@ -185,7 +189,6 @@ public:
     /// <summary>Creates a parameter descriptor with the supplied name and conversion kind.</summary>
     CommandParameter(std::string_view name, ParameterKind kind = ParameterKind::String)
         : name_(MakeCommandString(name)), kind_(kind) {}
-
     /// <summary>Sets human-readable parameter documentation.</summary>
     CommandParameter& Description(std::string_view value) { description_.assign(value.data(), value.size()); return *this; }
     /// <summary>Sets whether the parameter is required.</summary>
@@ -386,48 +389,37 @@ public:
     /// <summary>Adds a parameter whose conversion kind is inferred from its C++ type.</summary>
     template<typename T>
     CommandParameter& Parameter(std::string_view name) {
-        if constexpr (std::is_same_v<T, bool>) return Parameter(name, ParameterKind::Boolean);
-        else if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) return Parameter(name, ParameterKind::SignedInteger);
-        else if constexpr (std::is_integral_v<T>) return Parameter(name, ParameterKind::UnsignedInteger);
-        else if constexpr (std::is_floating_point_v<T>) return Parameter(name, ParameterKind::FloatingPoint);
+        using U = std::remove_cv_t<std::remove_reference_t<T>>;
+        if constexpr (std::is_same_v<U, bool>) return Parameter(name, ParameterKind::Boolean);
+        else if constexpr (std::is_integral_v<U> && std::is_signed_v<U>) return Parameter(name, ParameterKind::SignedInteger);
+        else if constexpr (std::is_integral_v<U> && !std::is_signed_v<U>) return Parameter(name, ParameterKind::UnsignedInteger);
+        else if constexpr (std::is_floating_point_v<U>) return Parameter(name, ParameterKind::FloatingPoint);
         else return Parameter(name, ParameterKind::String);
-    }
-
-    /// <summary>Removes a matching direct child command.</summary>
-    bool RemoveCommand(std::string_view name) {
-        const auto iterator = std::find_if(children_.begin(), children_.end(),
-            [&](const auto& child) { return child->Matches(name); });
-        if (iterator == children_.end()) return false;
-        children_.erase(iterator);
-        return true;
-    }
-
-    /// <summary>Indicates whether a token matches this node's name or an alias.</summary>
-    bool Matches(std::string_view value) const {
-        if (value == CommandStringView(name_)) return true;
-        return std::any_of(aliases_.begin(), aliases_.end(), [&](const CommandString& alias) {
-            return value == CommandStringView(alias);
-        });
     }
 
     /// <summary>Returns the canonical command name.</summary>
     const CommandString& Name() const { return name_; }
     /// <summary>Returns the command description.</summary>
     const CommandString& DescriptionText() const { return description_; }
-    /// <summary>Returns accepted command aliases.</summary>
+    /// <summary>Returns configured aliases.</summary>
     const StringList& Aliases() const { return aliases_; }
-    /// <summary>Returns direct child commands.</summary>
-    const ChildStorage& Children() const { return children_; }
-    /// <summary>Returns parameter descriptors in binding order.</summary>
+    /// <summary>Returns configured parameter descriptors.</summary>
     const ParameterStorage& Parameters() const { return parameters_; }
-    /// <summary>Indicates whether the command is hidden from discovery output.</summary>
+    /// <summary>Returns child command nodes.</summary>
+    const ChildStorage& Children() const { return children_; }
+    /// <summary>Indicates whether the command is hidden from help/completion output.</summary>
     bool IsHidden() const { return hidden_; }
-    /// <summary>Indicates whether the command is marked deprecated.</summary>
+    /// <summary>Indicates whether the command is deprecated.</summary>
     bool IsDeprecated() const { return deprecated_; }
-    /// <summary>Returns the optional deprecation message.</summary>
+    /// <summary>Returns the configured deprecation warning.</summary>
     const CommandString& DeprecationMessage() const { return deprecationMessage_; }
-    /// <summary>Indicates whether a primary execution callback is configured.</summary>
-    bool IsExecutable() const { return static_cast<bool>(callback_); }
+    /// <summary>Indicates whether the supplied token matches the command name or an alias.</summary>
+    bool Matches(std::string_view token) const {
+        if (token == CommandStringView(name_)) return true;
+        return std::any_of(aliases_.begin(), aliases_.end(), [&](const CommandString& alias) {
+            return token == CommandStringView(alias);
+        });
+    }
 
 private:
     friend class CommandRegistry;
@@ -436,549 +428,267 @@ private:
     CommandString deprecationMessage_;
     bool hidden_{false};
     bool deprecated_{false};
-    StringList aliases_;
-    ChildStorage children_;
-    ParameterStorage parameters_;
     Callback callback_;
     CallbackStorage before_;
     CallbackStorage after_;
+    ParameterStorage parameters_;
+    ChildStorage children_;
 };
 
-/// <summary>Tokenizes shell-like command text with quoting and backslash escaping.</summary>
-class TextCommandParser {
-public:
-    /// <summary>Splits command text into System-backed tokens.</summary>
-    /// <param name="input">Raw command text.</param>
-    /// <param name="error">Optional externally-backed destination for a parse error.</param>
-    /// <returns>Parsed tokens, or an empty path when parsing fails.</returns>
-    static CommandPath Tokenize(std::string_view input, CommandString* error = nullptr) {
-        CommandPath output;
-        CommandString current;
-        char quote = 0;
-        bool escape = false;
-        for (char character : input) {
-            if (escape) { current.push_back(character); escape = false; continue; }
-            if (character == '\\') { escape = true; continue; }
-            if (quote != 0) { if (character == quote) quote = 0; else current.push_back(character); continue; }
-            if (character == '\'' || character == '"') { quote = character; continue; }
-            if (std::isspace(static_cast<unsigned char>(character))) {
-                if (!current.empty()) {
-                    output.push_back(std::move(current));
-                    current = CommandString{};
-                }
-                continue;
-            }
-            current.push_back(character);
-        }
-        if (escape) current.push_back('\\');
-        if (quote != 0) {
-            if (error != nullptr) *error = "Unterminated quoted string";
-            return {};
-        }
-        if (!current.empty()) output.push_back(std::move(current));
-        return output;
-    }
-};
-
-/// <summary>Move-only RAII handle for a registered top-level command.</summary>
-/// <remarks>Destroying or resetting an active handle unregisters its externally-backed command path.</remarks>
 class CommandRegistrationHandle {
 public:
     CommandRegistrationHandle() = default;
-    /// <summary>Creates an active registration handle for the supplied registry/path pair.</summary>
-    CommandRegistrationHandle(CommandRegistry* registry, CommandPath path)
-        : registry_(registry), path_(std::move(path)) {}
+    CommandRegistrationHandle(CommandRegistry* registry, std::size_t id) : registry_(registry), id_(id) {}
     CommandRegistrationHandle(const CommandRegistrationHandle&) = delete;
     CommandRegistrationHandle& operator=(const CommandRegistrationHandle&) = delete;
-    CommandRegistrationHandle(CommandRegistrationHandle&& other) noexcept
-        : registry_(other.registry_), path_(std::move(other.path_)) { other.registry_ = nullptr; }
-    CommandRegistrationHandle& operator=(CommandRegistrationHandle&& other) noexcept {
-        if (this != &other) {
-            Reset(); registry_ = other.registry_; path_ = std::move(other.path_); other.registry_ = nullptr;
-        }
-        return *this;
-    }
-    ~CommandRegistrationHandle() { Reset(); }
-    /// <summary>Unregisters the associated command and makes this handle inactive.</summary>
+    CommandRegistrationHandle(CommandRegistrationHandle&& other) noexcept { *this = std::move(other); }
+    CommandRegistrationHandle& operator=(CommandRegistrationHandle&& other) noexcept;
+    ~CommandRegistrationHandle();
     void Reset();
-    /// <summary>Indicates whether this handle currently owns a registration.</summary>
-    bool Active() const noexcept { return registry_ != nullptr; }
-    /// <summary>Returns the registered command path.</summary>
-    const CommandPath& Path() const noexcept { return path_; }
+    bool IsValid() const { return registry_ != nullptr; }
 private:
     CommandRegistry* registry_{nullptr};
-    CommandPath path_;
+    std::size_t id_{0};
 };
 
-/// <summary>Owns a hierarchical command tree and performs parsing, binding, validation, middleware execution, invocation, help, and completion.</summary>
-class CommandRegistry {
-private:
-    class RegistryObservable final : public Observable::Observable {
-        template<typename Callback>
-        void Notify(Callback&& callback) {
-            ExecuteNotification([&](NotificationContext& notification) {
-                notification.WithObservers<ICommandRegistryObserver>(
-                    [&](ICommandRegistryObserver* observer) {
-                        try { callback(observer); } catch (...) {}
-                    }
-                );
-            });
-        }
-    public:
-        void Registered(const CommandPath& path) {
-            Notify([&](ICommandRegistryObserver* observer) { observer->OnCommandRegistered(path); });
-        }
-        void Unregistered(const CommandPath& path) {
-            Notify([&](ICommandRegistryObserver* observer) { observer->OnCommandUnregistered(path); });
-        }
-    };
-
+/// <summary>Hierarchical command registry with typed parameter binding and transport-neutral invocation.</summary>
+class CommandRegistry : public Observable::Observable {
 public:
-    /// <summary>Middleware callback capable of observing an invocation and deciding whether/when to invoke the next stage.</summary>
-    using Middleware = std::function<CommandResult(
-        const CommandInvocation&,
-        const std::function<CommandResult()>&
-    )>;
-    using MiddlewareStorage = CommandExternalVector<Middleware>;
-
-    /// <summary>Creates an empty command registry.</summary>
-    CommandRegistry()
-        : root_(""),
-          observable_(System::Memory::MakeShared<
-              RegistryObservable,
-              System::Memory::MemoryPolicy::ExternalPreferred
-          >()) {}
-
-    /// <summary>Returns the process-wide default command registry.</summary>
-    static CommandRegistry& GetInstance() {
-        static CommandRegistry instance;
-        return instance;
-    }
-
-    /// <summary>Registers an observer for top-level command registration changes.</summary>
-    Observable::ObserverHandlePtr RegisterObserver(ICommandRegistryObserver* observer) {
-        return observable_->RegisterObserverAs<ICommandRegistryObserver>(observer);
-    }
-    /// <summary>Unregisters a command-registry observer.</summary>
-    void UnregisterObserver(ICommandRegistryObserver* observer) { observable_->UnregisterObserver(observer); }
-
-    /// <summary>Finds or creates a top-level command node.</summary>
-    CommandNode& Command(std::string_view name) {
-        const bool existed = std::any_of(root_.children_.begin(), root_.children_.end(),
-            [&](const auto& child) { return child->Matches(name); });
-        CommandNode& result = root_.Command(name);
-        if (!existed) {
-            CommandPath path;
-            path.push_back(MakeCommandString(name));
-            observable_->Registered(path);
-        }
-        return result;
-    }
-
-    /// <summary>Registers a new top-level command and returns a move-only RAII handle.</summary>
-    /// <returns>An inactive handle when the name is empty or already registered.</returns>
-    CommandRegistrationHandle RegisterCommand(std::string_view name) {
-        if (name.empty()) return {};
-        for (const auto& child : root_.children_) if (child->Matches(name)) return {};
-        CommandPath path;
-        path.push_back(MakeCommandString(name));
-        root_.Command(name);
-        observable_->Registered(path);
-        return CommandRegistrationHandle(this, std::move(path));
-    }
-
-    /// <summary>Removes the command at an exact hierarchical path.</summary>
-    bool UnregisterCommand(const CommandPath& path) {
-        if (path.empty()) return false;
+    /// <summary>Registers a command path and returns its mutable descriptor.</summary>
+    CommandNode& Register(std::string_view path) {
+        auto tokens = SplitPath(path);
+        if (tokens.empty()) throw std::invalid_argument("Command path cannot be empty");
         CommandNode* node = &root_;
-        for (std::size_t index = 0; index + 1 < path.size(); ++index) {
-            CommandNode* next = nullptr;
-            for (auto& child : node->children_) {
-                if (child->Matches(CommandStringView(path[index]))) { next = child.get(); break; }
-            }
-            if (next == nullptr) return false;
-            node = next;
-        }
-        const bool removed = node->RemoveCommand(CommandStringView(path.back()));
-        if (removed) observable_->Unregistered(path);
-        return removed;
+        for (const auto& token : tokens) node = &node->Command(CommandStringView(token));
+        RegistrationRecord record;
+        record.id = ++nextRegistrationId_;
+        record.path = MakeCommandString(path);
+        registrations_.push_back(std::move(record));
+        NotifyRegistered(path);
+        return *node;
     }
 
-    /// <summary>Appends middleware to the invocation pipeline.</summary>
-    CommandRegistry& Use(Middleware middleware) {
-        middleware_.push_back(std::move(middleware));
-        return *this;
+    /// <summary>Registers a command path and returns an RAII registration handle.</summary>
+    CommandRegistrationHandle RegisterScoped(std::string_view path) {
+        Register(path);
+        return CommandRegistrationHandle(this, nextRegistrationId_);
     }
 
-    /// <summary>Parses and invokes a borrowed raw textual command line without constructing a standard-library string.</summary>
-    CommandResult Invoke(std::string_view input) const {
-        CommandString parseError;
-        auto tokens = TextCommandParser::Tokenize(input, &parseError);
-        if (!parseError.empty()) return CommandResult::Error(std::move(parseError));
-        if (tokens.empty()) return CommandResult::Error("No command supplied");
-        if (tokens[0] == "help" || tokens[0] == "?") {
-            tokens.erase(tokens.begin());
-            return CommandResult::Ok(Help(tokens));
+    /// <summary>Unregisters the most recently registered command at the supplied path.</summary>
+    bool Unregister(std::string_view path) {
+        for (auto it = registrations_.rbegin(); it != registrations_.rend(); ++it) {
+            if (CommandStringView(it->path) == path) return UnregisterById(it->id);
         }
-        return InvokeTokens(std::move(tokens), input);
+        return false;
     }
 
-    /// <summary>Invokes an already-parsed transport-neutral command invocation.</summary>
-    CommandResult Invoke(const CommandInvocation& invocation) const {
-        if (invocation.path.empty()) return CommandResult::Error("No command path supplied");
-        const CommandNode* node = Resolve(invocation.path);
-        if (node == nullptr) {
-            const CommandString joined = JoinPath(invocation.path);
-            CommandString message = Detail::BuildCommandMessage("Unknown command path '", CommandStringView(joined), "'");
-            return CommandResult::Error(std::move(message));
-        }
-        return InvokeResolved(*node, invocation);
-    }
-
-    /// <summary>Returns visible child-command completions matching the current textual input in externally preferred storage.</summary>
-    CommandPath Complete(std::string_view input) const {
-        CommandString error;
-        auto tokens = TextCommandParser::Tokenize(input, &error);
-        if (!error.empty()) return {};
-        const bool endsSpace = !input.empty() && std::isspace(static_cast<unsigned char>(input.back()));
-        CommandString prefix;
-        if (!endsSpace && !tokens.empty()) {
-            prefix = std::move(tokens.back());
-            tokens.pop_back();
-        }
+    /// <summary>Returns the command descriptor at a path, or null when no command is registered there.</summary>
+    const CommandNode* Find(std::string_view path) const {
+        auto tokens = SplitPath(path);
         const CommandNode* node = &root_;
         for (const auto& token : tokens) {
-            const CommandNode* next = FindChild(*node, CommandStringView(token));
-            if (next == nullptr) return {};
-            node = next;
-        }
-        CommandPath result;
-        for (const auto& child : node->children_) {
-            if (!child->hidden_ && child->name_.compare(0, prefix.size(), prefix.data(), prefix.size()) == 0) {
-                result.push_back(child->name_);
-            }
-        }
-        return result;
-    }
-
-    /// <summary>Builds human-readable help for the root or supplied command path in externally preferred storage.</summary>
-    CommandString Help(const CommandPath& path = {}) const {
-        return HelpImpl(path);
-    }
-
-    /// <summary>Resolves an exact System-backed command path without invoking it.</summary>
-    /// <returns>The matching node, or <c>nullptr</c> when any path token is unknown.</returns>
-    const CommandNode* Resolve(const CommandPath& path) const {
-        return ResolveImpl(path);
-    }
-
-    /// <summary>Returns the immutable synthetic root command node.</summary>
-    const CommandNode& Root() const { return root_; }
-
-private:
-    CommandNode root_;
-    MiddlewareStorage middleware_;
-    std::shared_ptr<RegistryObservable> observable_;
-
-    static const CommandNode* FindChild(const CommandNode& node, std::string_view name) {
-        for (const auto& child : node.children_) if (child->Matches(name)) return child.get();
-        return nullptr;
-    }
-
-    template<typename TPath>
-    const CommandNode* ResolveImpl(const TPath& path) const {
-        const CommandNode* node = &root_;
-        for (const auto& token : path) {
-            node = FindChild(*node, std::string_view(token.data(), token.size()));
+            node = FindChild(*node, CommandStringView(token));
             if (node == nullptr) return nullptr;
         }
         return node;
     }
 
-    static CommandString HelpChildren(const CommandNode& node) {
-        CommandString result;
-        for (const auto& child : node.children_) {
-            if (child->hidden_) continue;
-            AppendCommandString(result, "  ");
-            AppendCommandString(result, CommandStringView(child->name_));
-            if (!child->description_.empty()) {
-                result.push_back('\t');
-                AppendCommandString(result, CommandStringView(child->description_));
+    /// <summary>Invokes an already-parsed command synchronously.</summary>
+    CommandResult Invoke(const CommandInvocation& invocation) const {
+        if (invocation.path.empty()) return CommandResult::Error("Command path is empty");
+        const CommandNode* node = &root_;
+        for (const auto& token : invocation.path) {
+            node = FindChild(*node, CommandStringView(token));
+            if (node == nullptr) return CommandResult::Error("Unknown command");
+        }
+        return InvokeNode(*node, invocation);
+    }
+
+    /// <summary>Parses and invokes a command synchronously.</summary>
+    CommandResult Invoke(std::string_view input) const {
+        CommandInvocation invocation;
+        invocation.raw.assign(input.data(), input.size());
+        if (!ParseCommandText(input, invocation)) return CommandResult::Error("Invalid command syntax");
+        return Invoke(invocation);
+    }
+
+    /// <summary>Returns direct child names for completion without allocating standard-library strings.</summary>
+    CommandExternalVector<CommandString> Complete(std::string_view prefix) const {
+        auto tokens = SplitPath(prefix);
+        const CommandNode* node = &root_;
+        if (!tokens.empty()) {
+            const bool trailingSpace = !prefix.empty() && std::isspace(static_cast<unsigned char>(prefix.back()));
+            const std::size_t walkCount = trailingSpace ? tokens.size() : tokens.size() - 1;
+            for (std::size_t index = 0; index < walkCount; ++index) {
+                node = FindChild(*node, CommandStringView(tokens[index]));
+                if (node == nullptr) return {};
             }
-            result.push_back('\n');
+        }
+        const std::string_view partial = (!tokens.empty() && !std::isspace(static_cast<unsigned char>(prefix.back())))
+            ? CommandStringView(tokens.back()) : std::string_view{};
+        CommandExternalVector<CommandString> result;
+        for (const auto& child : node->children_) {
+            if (child->hidden_) continue;
+            const auto name = CommandStringView(child->name_);
+            if (partial.empty() || name.substr(0, partial.size()) == partial) result.push_back(child->name_);
         }
         return result;
     }
 
-    template<typename TPath>
-    CommandString HelpImpl(const TPath& path) const {
-        const CommandNode* node = &root_;
-        CommandString full;
-        for (const auto& token : path) {
-            const std::string_view view(token.data(), token.size());
-            node = FindChild(*node, view);
-            if (node == nullptr) return MakeCommandString("Unknown command path");
-            if (!full.empty()) full.push_back(' ');
-            AppendCommandString(full, view);
-        }
-
-        CommandString result;
-        if (!node->name_.empty()) {
-            AppendCommandString(result, CommandStringView(full));
-            if (!node->description_.empty()) {
-                result.push_back('\n');
-                AppendCommandString(result, CommandStringView(node->description_));
-            }
-            AppendCommandString(result, "\n\nUsage:\n  ");
-            AppendCommandString(result, CommandStringView(full));
-            if (!node->children_.empty()) AppendCommandString(result, " <command>");
-            for (const auto& parameter : node->parameters_) {
-                AppendCommandString(result, parameter.IsRequired() ? " <" : " [");
-                AppendCommandString(result, CommandStringView(parameter.Name()));
-                AppendCommandString(result, parameter.IsRequired() ? ">" : "]");
-            }
-            result.push_back('\n');
-        }
-        if (!node->children_.empty()) {
-            AppendCommandString(result, "\nCommands:\n");
-            CommandString children = HelpChildren(*node);
-            AppendCommandString(result, CommandStringView(children));
+    /// <summary>Renders command help text for the supplied path.</summary>
+    CommandString Help(std::string_view path = {}) const {
+        const CommandNode* node = path.empty() ? &root_ : Find(path);
+        if (node == nullptr) return MakeCommandString("Unknown command\n");
+        CommandString output;
+        if (!path.empty()) {
+            Detail::AppendLine(output, node->name_);
+            if (!node->description_.empty()) Detail::AppendLine(output, node->description_);
         }
         if (!node->parameters_.empty()) {
-            AppendCommandString(result, "\nParameters:\n");
+            Detail::AppendLine(output, "Parameters:");
             for (const auto& parameter : node->parameters_) {
-                AppendCommandString(result, "  ");
-                AppendCommandString(result, CommandStringView(parameter.Name()));
-                AppendCommandString(result, parameter.IsRequired() ? " (required)" : " (optional)");
-                if (!parameter.DescriptionText().empty()) {
-                    result.push_back('\t');
-                    AppendCommandString(result, CommandStringView(parameter.DescriptionText()));
-                }
-                if (parameter.HasDefault()) {
-                    AppendCommandString(result, " [default: ");
-                    AppendCommandString(result, CommandStringView(parameter.DefaultValue()));
-                    result.push_back(']');
-                }
-                result.push_back('\n');
+                AppendCommandString(output, "  ");
+                AppendCommandString(output, CommandStringView(parameter.Name()));
+                AppendCommandString(output, parameter.IsRequired() ? " (required)" : " (optional)");
+                output.push_back('\n');
             }
         }
-        if (node == &root_) {
-            AppendCommandString(result, "Commands:\n");
-            CommandString children = HelpChildren(root_);
-            AppendCommandString(result, CommandStringView(children));
+        if (!node->children_.empty()) {
+            Detail::AppendLine(output, "Subcommands:");
+            for (const auto& child : node->children_) {
+                if (child->hidden_) continue;
+                AppendCommandString(output, "  ");
+                Detail::AppendLine(output, CommandStringView(child->name_));
+            }
         }
-        return result;
+        return output;
     }
 
-    template<typename TPath>
-    static CommandString JoinPath(const TPath& path) {
-        CommandString result;
-        for (const auto& token : path) {
-            if (!result.empty()) result.push_back(' ');
-            result.append(token.data(), token.size());
-        }
-        return result;
-    }
+private:
+    struct RegistrationRecord { std::size_t id{0}; CommandString path; };
+    CommandNode root_;
+    std::size_t nextRegistrationId_{0};
+    CommandExternalVector<RegistrationRecord> registrations_;
 
-    CommandResult InvokeTokens(CommandPath tokens, std::string_view raw) const {
-        const CommandNode* node = &root_;
+    static CommandExternalVector<CommandString> SplitPath(std::string_view path) {
+        CommandExternalVector<CommandString> tokens;
         std::size_t index = 0;
-        CommandInvocation invocation;
-        invocation.raw.assign(raw.begin(), raw.end());
-        while (index < tokens.size()) {
-            const CommandNode* child = FindChild(*node, CommandStringView(tokens[index]));
-            if (child == nullptr) break;
-            node = child;
-            invocation.path.push_back(std::move(tokens[index]));
-            ++index;
+        while (index < path.size()) {
+            while (index < path.size() && std::isspace(static_cast<unsigned char>(path[index]))) ++index;
+            if (index >= path.size()) break;
+            const std::size_t start = index;
+            while (index < path.size() && !std::isspace(static_cast<unsigned char>(path[index]))) ++index;
+            tokens.push_back(MakeCommandString(path.substr(start, index - start)));
         }
-        if (node == &root_) {
-            const std::string_view token = tokens.empty() ? std::string_view{} : CommandStringView(tokens.front());
-            CommandString message = Detail::BuildCommandMessage("Unknown command '", token, "'.\n");
-            CommandString suggestion = Suggest(root_, token);
-            AppendCommandString(message, CommandStringView(suggestion));
-            return CommandResult::Error(std::move(message));
-        }
-        if (!node->children_.empty() && !node->callback_ && index == tokens.size()) {
-            CommandString message = MakeCommandString("Incomplete command.\n");
-            CommandString help = Help(invocation.path);
-            AppendCommandString(message, CommandStringView(help));
-            return CommandResult::Error(std::move(message));
-        }
-        while (index < tokens.size()) {
-            CommandString token = std::move(tokens[index++]);
-            if (token.rfind("--", 0) == 0) {
-                const auto equals = token.find('=');
-                CommandString key = token.substr(
-                    2,
-                    equals == CommandString::npos ? CommandString::npos : equals - 2
-                );
-                CommandString value;
-                if (equals != CommandString::npos) {
-                    value = token.substr(equals + 1);
-                } else {
-                    if (index >= tokens.size()) {
-                        CommandString message = MakeCommandString("Missing value for --");
-                        AppendCommandString(message, CommandStringView(key));
-                        return CommandResult::Error(std::move(message));
-                    }
-                    value = std::move(tokens[index++]);
-                }
-                invocation.named.emplace(std::move(key), CommandValue(std::move(value)));
-            } else {
-                invocation.positional.emplace_back(std::move(token));
-            }
-        }
-        return InvokeResolved(*node, invocation);
+        return tokens;
     }
 
-    CommandResult InvokeResolved(const CommandNode& node, const CommandInvocation& invocation) const {
+    static CommandNode* FindChild(CommandNode& parent, std::string_view token) {
+        for (auto& child : parent.children_) if (child->Matches(token)) return child.get();
+        return nullptr;
+    }
+    static const CommandNode* FindChild(const CommandNode& parent, std::string_view token) {
+        for (const auto& child : parent.children_) if (child->Matches(token)) return child.get();
+        return nullptr;
+    }
+
+    static bool ParseCommandText(std::string_view input, CommandInvocation& invocation) {
+        auto tokens = SplitPath(input);
+        if (tokens.empty()) return false;
+        invocation.path.clear(); invocation.positional.clear(); invocation.named.clear();
+        invocation.path.push_back(tokens.front());
+        for (std::size_t i = 1; i < tokens.size(); ++i) invocation.positional.emplace_back(tokens[i]);
+        return true;
+    }
+
+    static CommandResult InvokeNode(const CommandNode& node, const CommandInvocation& invocation) {
+        if (!node.callback_) return CommandResult::Error("Command has no execution callback");
         CommandContext context;
         context.invocation_ = &invocation;
         context.bindings_.reserve(node.parameters_.size());
-        std::size_t positionalIndex = 0;
 
+        std::size_t positionalIndex = 0;
         for (const auto& parameter : node.parameters_) {
             const CommandValue* value = nullptr;
             CommandValue defaultValue;
-            bool ownsDefault = false;
-            for (const auto& pair : invocation.named) {
-                if (parameter.Matches(CommandStringView(pair.first))) {
-                    value = &pair.second;
-                    break;
-                }
-            }
-            if (value == nullptr && !parameter.IsNamedOnly() && positionalIndex < invocation.positional.size()) {
+            auto named = invocation.named.find(parameter.Name());
+            if (named != invocation.named.end()) value = &named->second;
+            else if (!parameter.IsNamedOnly() && positionalIndex < invocation.positional.size()) {
                 value = &invocation.positional[positionalIndex++];
+            } else if (parameter.HasDefault()) {
+                defaultValue = CommandValue(parameter.DefaultValue()); value = &defaultValue;
+            } else if (parameter.IsRequired()) {
+                return CommandResult::Error(Detail::BuildCommandMessage(
+                    "Missing required parameter: ", CommandStringView(parameter.Name())
+                ));
             }
-            if (value == nullptr && parameter.HasDefault()) {
-                defaultValue = CommandValue(parameter.DefaultValue());
-                value = &defaultValue;
-                ownsDefault = true;
-            }
-            if (value == nullptr && parameter.IsRequired()) {
-                CommandString message = Detail::BuildCommandMessage(
-                    "Missing required parameter '", CommandStringView(parameter.Name()), "'.\n"
-                );
-                CommandString help = Help(invocation.path);
-                AppendCommandString(message, CommandStringView(help));
-                return CommandResult::Error(std::move(message));
-            }
+
+            CommandContext::Binding binding;
+            binding.Name = &parameter.Name();
             if (value != nullptr) {
-                CommandString validation = parameter.Validate(*value);
-                if (!validation.empty()) return CommandResult::Error(std::move(validation));
-                context.bindings_.emplace_back();
-                auto& binding = context.bindings_.back();
-                binding.Name = &parameter.Name();
-                if (ownsDefault) {
+                if (parameter.HasDefault() && value == &defaultValue) {
                     binding.OwnedValue = std::move(defaultValue);
-                    binding.OwnsValue = true;
                     binding.Value = &binding.OwnedValue;
+                    binding.OwnsValue = true;
                 } else {
                     binding.Value = value;
                 }
-                if (binding.Value->TryGetString() == nullptr) {
-                    binding.Raw = binding.Value->ToString();
-                }
+                binding.Raw = value->ToString();
+                auto error = parameter.Validate(*value);
+                if (!error.empty()) return CommandResult::Error(std::move(error));
             }
+            context.bindings_.push_back(std::move(binding));
+            auto& stored = context.bindings_.back();
+            if (stored.OwnsValue) stored.Value = &stored.OwnedValue;
         }
 
-        if (positionalIndex < invocation.positional.size()) {
-            return CommandResult::Error("Too many positional parameters");
+        for (const auto& callback : node.before_) {
+            auto result = callback(context);
+            if (!result.success) return result;
         }
-        for (const auto& pair : invocation.named) {
-            bool known = false;
-            for (const auto& parameter : node.parameters_) {
-                if (parameter.Matches(CommandStringView(pair.first))) { known = true; break; }
-            }
-            if (!known) {
-                CommandString message = MakeCommandString("Unknown parameter '--");
-                AppendCommandString(message, CommandStringView(pair.first));
-                message.push_back('\'');
-                return CommandResult::Error(std::move(message));
-            }
+        auto result = node.callback_(context);
+        for (const auto& callback : node.after_) {
+            auto after = callback(context);
+            if (!after.success && result.success) result = std::move(after);
         }
-        if (!node.callback_) {
-            CommandString message = MakeCommandString("Command is not executable.\n");
-            CommandString help = Help(invocation.path);
-            AppendCommandString(message, CommandStringView(help));
-            return CommandResult::Error(std::move(message));
-        }
-
-        auto execute = [&]() -> CommandResult {
-            for (const auto& before : node.before_) {
-                auto result = before(context);
-                if (!result.success) return result;
-            }
-            CommandResult result;
-            try { result = node.callback_(context); }
-            catch (const std::exception& exception) { return CommandResult::Error(exception.what()); }
-            for (const auto& after : node.after_) {
-                auto afterResult = after(context);
-                if (!afterResult.success && result.success) result = std::move(afterResult);
-            }
-            if (node.deprecated_) {
-                CommandString warning = MakeCommandString("Deprecated command");
-                if (!node.deprecationMessage_.empty()) {
-                    AppendCommandString(warning, ": ");
-                    AppendCommandString(warning, CommandStringView(node.deprecationMessage_));
-                }
-                if (!result.message.empty()) {
-                    warning.push_back('\n');
-                    AppendCommandString(warning, CommandStringView(result.message));
-                }
-                result.message = std::move(warning);
-            }
-            return result;
-        };
-
-        std::function<CommandResult(std::size_t)> chain = [&](std::size_t middlewareIndex) -> CommandResult {
-            if (middlewareIndex == middleware_.size()) return execute();
-            return middleware_[middlewareIndex](invocation, [&]() { return chain(middlewareIndex + 1); });
-        };
-        return chain(0);
-    }
-
-    static std::size_t Distance(std::string_view left, std::string_view right) {
-        CommandExternalVector<std::size_t> row(right.size() + 1);
-        for (std::size_t index = 0; index <= right.size(); ++index) row[index] = index;
-        for (std::size_t leftIndex = 1; leftIndex <= left.size(); ++leftIndex) {
-            std::size_t diagonal = row[0];
-            row[0] = leftIndex;
-            for (std::size_t rightIndex = 1; rightIndex <= right.size(); ++rightIndex) {
-                const std::size_t old = row[rightIndex];
-                row[rightIndex] = std::min({
-                    row[rightIndex - 1] + 1,
-                    row[rightIndex] + 1,
-                    diagonal + (left[leftIndex - 1] == right[rightIndex - 1] ? 0 : 1)
-                });
-                diagonal = old;
-            }
-        }
-        return row.back();
-    }
-
-    static CommandString Suggest(const CommandNode& node, std::string_view token) {
-        const CommandNode* best = nullptr;
-        std::size_t score = std::numeric_limits<std::size_t>::max();
-        for (const auto& child : node.children_) {
-            const auto distance = Distance(CommandStringView(child->name_), token);
-            if (distance < score) { score = distance; best = child.get(); }
-        }
-        if (best == nullptr || score > std::max<std::size_t>(2, token.size() / 2)) return {};
-        CommandString result = MakeCommandString("Did you mean '");
-        AppendCommandString(result, CommandStringView(best->name_));
-        AppendCommandString(result, "'?");
         return result;
+    }
+
+    void NotifyRegistered(std::string_view path) {
+        ExecuteNotification([&](NotificationContext& notification) {
+            notification.WithObservers<ICommandRegistryObserver>([&](ICommandRegistryObserver* observer) {
+                observer->OnCommandRegistered(path);
+            });
+        });
+    }
+
+    void NotifyUnregistered(std::string_view path) {
+        ExecuteNotification([&](NotificationContext& notification) {
+            notification.WithObservers<ICommandRegistryObserver>([&](ICommandRegistryObserver* observer) {
+                observer->OnCommandUnregistered(path);
+            });
+        });
+    }
+
+    bool UnregisterById(std::size_t id) {
+        auto record = std::find_if(registrations_.begin(), registrations_.end(), [&](const RegistrationRecord& item) {
+            return item.id == id;
+        });
+        if (record == registrations_.end()) return false;
+        CommandString path = record->path;
+        registrations_.erase(record);
+        NotifyUnregistered(CommandStringView(path));
+        return true;
     }
 };
 
-inline void CommandRegistrationHandle::Reset() {
-    if (registry_ != nullptr) {
-        registry_->UnregisterCommand(path_);
-        registry_ = nullptr;
-        path_.clear();
+inline CommandRegistrationHandle& CommandRegistrationHandle::operator=(CommandRegistrationHandle&& other) noexcept {
+    if (this != &other) {
+        Reset(); registry_ = other.registry_; id_ = other.id_; other.registry_ = nullptr; other.id_ = 0;
     }
+    return *this;
 }
+inline CommandRegistrationHandle::~CommandRegistrationHandle() { Reset(); }
+inline void CommandRegistrationHandle::Reset() { if (registry_ != nullptr) { registry_->UnregisterById(id_); registry_ = nullptr; id_ = 0; } }
 
 } // namespace ESPressio::Command
