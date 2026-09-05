@@ -8,7 +8,7 @@
 using namespace ESPressio::Command;
 
 int main() {
-    static_assert(CommandFamilyId == Primitive::FamilyIds::Command);
+    static_assert(CommandFamilyId == ESPressio::Primitive::FamilyIds::Command);
 
     CommandMessage message;
     message.MessageId = CommandMessageId(42);
