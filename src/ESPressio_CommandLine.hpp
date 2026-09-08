@@ -8,6 +8,19 @@ namespace ESPressio::Command {
 
 /// <summary>Incremental text command-line adapter over a <c>CommandRegistry</c>.</summary>
 /// <remarks>Input is buffered until a newline is received, then invoked synchronously through the bound registry. Completed non-empty lines are retained in externally preferred history storage.</remarks>
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - registry_ (CommandRegistry&): 4 bytes [0 bytes dynamic allocation]
+ * - prompt_ (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - buffer_ (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - history_ (HistoryStorage): 12 bytes [Capacity * (24 bytes) element storage; N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - handler_ (ResultHandler): 4 bytes [0 bytes dynamic allocation]
+ * Total Memory: 68 bytes [prompt_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; buffer_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; history_: Capacity * (24 bytes) element storage; history_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 class CommandLine {
 public:
     /// <summary>Externally preferred storage used for retained command-line history.</summary>
