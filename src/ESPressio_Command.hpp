@@ -148,19 +148,19 @@ struct CommandInvocation {
  */
 class CommandContext {
 private:
-        /**
-     * ESPressio Memory Audit
-     * Members:
-     * - Name (CommandString*): 4 bytes [0 bytes dynamic allocation]
-     * - Value (CommandValue*): 4 bytes [0 bytes dynamic allocation]
-     * - OwnedValue (CommandValue): 28 bytes [value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * - Raw (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * - OwnsValue (bool): 1 bytes [0 bytes dynamic allocation]
-     * Total Memory: 64 bytes [OwnedValue: value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Raw: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Members:
+ * - Name (CommandString*): 4 bytes [0 bytes dynamic allocation]
+ * - Value (CommandValue*): 4 bytes [0 bytes dynamic allocation]
+ * - OwnedValue (CommandValue): 28 bytes [value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - Raw (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * - OwnsValue (bool): 1 bytes [0 bytes dynamic allocation]
+ * Total Memory: 64 bytes [OwnedValue: value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Raw: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
+ * End ESPressio Memory Audit
+ */
 struct Binding {
         const CommandString* Name = nullptr;
         const CommandValue* Value = nullptr;
@@ -637,14 +637,14 @@ private:
  */
 class CommandRegistry {
 private:
-        /**
-     * ESPressio Memory Audit
-     * Inherited Memory Total: 52 bytes [Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; Observable: _registrations: Capacity * (12 bytes) element storage; Observable: _bindings: Capacity * (12 bytes) element storage]
-     * Members: none (standalone empty object occupies 1 byte; an eligible empty base may be optimized to 0 bytes).
-     * Total Memory: 52 bytes [Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; Observable: _registrations: Capacity * (12 bytes) element storage; Observable: _bindings: Capacity * (12 bytes) element storage]
-     * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
-     * End ESPressio Memory Audit
-     */
+/**
+ * ESPressio Memory Audit
+ * Inherited Memory Total: 52 bytes [Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; Observable: _registrations: Capacity * (12 bytes) element storage; Observable: _bindings: Capacity * (12 bytes) element storage]
+ * Members: none (standalone empty object occupies 1 byte; an eligible empty base may be optimized to 0 bytes).
+ * Total Memory: 52 bytes [Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; Observable: _registrations: Capacity * (12 bytes) element storage; Observable: _bindings: Capacity * (12 bytes) element storage]
+ * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
+ * End ESPressio Memory Audit
+ */
 class RegistryObservable final : public Observable::Observable {
         template<typename Callback>
         void Notify(Callback&& callback) {
