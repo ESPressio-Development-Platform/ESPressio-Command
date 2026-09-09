@@ -22,7 +22,7 @@
     "dependencies": [
         {
             "name": "ESPressio-System",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-System.git#structural_realignment_propagation_ESPressio-Mesh"
+            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-System.git#primitives_redesign"
         },
         {
             "name": "ESPressio-Primitive",
@@ -30,7 +30,7 @@
         },
         {
             "name": "ESPressio-Task",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Task.git#structural_realignment"
+            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Task.git#primitives_redesign"
         },
         {
             "name": "ESPressio-Observable",
