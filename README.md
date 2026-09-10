@@ -10,7 +10,7 @@ This repository is participating in the ESPressio-Mesh structural-realignment tr
 structural_realignment_propagation_ESPressio-Mesh
 ```
 
-The intended release-restructuring documentation baseline is **1.0.0**. Tranche work does not alter package version fields.
+The intended release-restructuring documentation baseline is ****. Tranche work does not alter package version fields.
 
 ## Architectural role
 
@@ -119,16 +119,16 @@ using namespace ESPressio::Command;
 auto& commands = CommandRegistry::GetInstance();
 
 auto& write = commands.Command("gpio")
-    .Description("GPIO operations")
-    .Command("write")
-    .Description("Request a GPIO output change");
+.Description("GPIO operations")
+.Command("write")
+.Description("Request a GPIO output change");
 
 write.Parameter<int>("pin")
-    .Description("GPIO pin")
-    .Range(0, 48);
+.Description("GPIO pin")
+.Range(0, 48);
 
 write.Parameter<bool>("state")
-    .Description("Requested output state");
+.Description("Requested output state");
 
 write.OnExecute([](const CommandContext& context) {
     const int pin = context.Get<int>("pin");
