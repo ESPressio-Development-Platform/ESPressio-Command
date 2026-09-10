@@ -47,16 +47,7 @@ inline void AppendLine(CommandString& target, std::string_view value) {
 /// This result describes only whether the local Command framework accepted/handled the invocation. It is not an
 /// application-operation completion result, RPC response, remote-delivery acknowledgement, or transport outcome.
 /// </remarks>
-/**
- * ESPressio Memory Audit
- * Members:
- * - success (bool): 1 bytes [0 bytes dynamic allocation]
- * - code (int): 4 bytes [0 bytes dynamic allocation]
- * - message (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Total Memory: 32 bytes [message: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 struct CommandResult {
     /// <summary>Indicates whether local command handling accepted/succeeded for this invocation.</summary>
     bool success{true};
@@ -111,18 +102,7 @@ class CommandRegistry;
 class CommandRegistrationHandle;
 
 /// <summary>Transport-neutral, already-parsed command invocation supplied to the registry.</summary>
-/**
- * ESPressio Memory Audit
- * Members:
- * - path (CommandPath): 12 bytes [Capacity * (24 bytes) element storage; N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - positional (CommandValueList): 12 bytes [Capacity * (28 bytes) element storage; N live elements each: value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - named (CommandNamedValues): 28 bytes [N * (16 bytes red-black-tree node linkage + 52 bytes value); key/value: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; key/value: value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - raw (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Total Memory: 76 bytes [path: Capacity * (24 bytes) element storage; path: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; positional: Capacity * (28 bytes) element storage; positional: N live elements each: value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; named: N * (16 bytes red-black-tree node linkage + 52 bytes value); named: key/value: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; named: key/value: value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; raw: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 struct CommandInvocation {
     /// <summary>Resolved command path tokens retained in externally-preferred storage.</summary>
     CommandPath path;
@@ -136,31 +116,10 @@ struct CommandInvocation {
 
 /// <summary>Validated parameter bindings exposed to an executing command callback.</summary>
 /// <remarks>The context is valid only for the duration of the associated command invocation.</remarks>
-/**
- * ESPressio Memory Audit
- * Members:
- * - bindings_ (BindingStorage): 12 bytes [Capacity * (64 bytes) element storage; N live elements each: OwnedValue: value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; N live elements each: Raw: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - invocation_ (CommandInvocation*): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 16 bytes [bindings_: Capacity * (64 bytes) element storage; bindings_: N live elements each: OwnedValue: value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; bindings_: N live elements each: Raw: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class CommandContext {
 private:
-/**
- * ESPressio Memory Audit
- * Members:
- * - Name (CommandString*): 4 bytes [0 bytes dynamic allocation]
- * - Value (CommandValue*): 4 bytes [0 bytes dynamic allocation]
- * - OwnedValue (CommandValue): 28 bytes [value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - Raw (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - OwnsValue (bool): 1 bytes [0 bytes dynamic allocation]
- * Total Memory: 64 bytes [OwnedValue: value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; Raw: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 struct Binding {
         const CommandString* Name = nullptr;
         const CommandValue* Value = nullptr;
@@ -217,13 +176,7 @@ public:
 };
 
 /// <summary>Validation and conversion category assigned to a command parameter.</summary>
-/**
- * ESPressio Memory Audit
- * Underlying storage: 4 bytes
- * Total Memory: 4 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 enum class ParameterKind {
     String,
     Boolean,
@@ -234,27 +187,7 @@ enum class ParameterKind {
 };
 
 /// <summary>Describes one command parameter, including validation, aliases, defaults, ranges, and choices.</summary>
-/**
- * ESPressio Memory Audit
- * Members:
- * - name_ (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - description_ (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - default_ (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - validatorMessage_ (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - kind_ (ParameterKind): 4 bytes [0 bytes dynamic allocation]
- * - required_ (bool): 1 bytes [0 bytes dynamic allocation]
- * - namedOnly_ (bool): 1 bytes [0 bytes dynamic allocation]
- * - hasDefault_ (bool): 1 bytes [0 bytes dynamic allocation]
- * - hasRange_ (bool): 1 bytes [0 bytes dynamic allocation]
- * - minimum_ (long double): 16 bytes [0 bytes dynamic allocation]
- * - maximum_ (long double): 16 bytes [0 bytes dynamic allocation]
- * - aliases_ (StringList): 12 bytes [Capacity * (24 bytes) element storage; N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - choices_ (StringList): 12 bytes [Capacity * (24 bytes) element storage; N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Total Memory: 160 bytes [name_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; description_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; default_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; validatorMessage_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; aliases_: Capacity * (24 bytes) element storage; aliases_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; choices_: Capacity * (24 bytes) element storage; choices_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class CommandParameter {
 public:
     using StringList = CommandExternalVector<CommandString>;
@@ -417,25 +350,7 @@ private:
 
 /// <summary>One node in the hierarchical command tree.</summary>
 /// <remarks>Child objects and all dynamic node metadata use ESPressio external-preferred memory policy.</remarks>
-/**
- * ESPressio Memory Audit
- * Members:
- * - name_ (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - description_ (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - deprecationMessage_ (CommandString): 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - hidden_ (bool): 1 bytes [0 bytes dynamic allocation]
- * - deprecated_ (bool): 1 bytes [0 bytes dynamic allocation]
- * - aliases_ (StringList): 12 bytes [Capacity * (24 bytes) element storage; N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - children_ (ChildStorage): 12 bytes [Capacity * (8 bytes) element storage; N live elements each: owned object: sizeof(CommandNode) (target/toolchain dependent)]
- * - parameters_ (ParameterStorage): 12 bytes [Capacity * (160 bytes) element storage; N live elements each: name_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; N live elements each: description_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; N live elements each: default_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; N live elements each: validatorMessage_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; N live elements each: aliases_: Capacity * (24 bytes) element storage; N live elements each: aliases_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; N live elements each: choices_: Capacity * (24 bytes) element storage; N live elements each: choices_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * - callback_ (Callback): 4 bytes [0 bytes dynamic allocation]
- * - before_ (CallbackStorage): 12 bytes [Capacity * (4 bytes) element storage]
- * - after_ (CallbackStorage): 12 bytes [Capacity * (4 bytes) element storage]
- * Total Memory: 140 bytes [name_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; description_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; deprecationMessage_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; aliases_: Capacity * (24 bytes) element storage; aliases_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; children_: Capacity * (8 bytes) element storage; children_: N live elements each: owned object: sizeof(CommandNode) (target/toolchain dependent); parameters_: Capacity * (160 bytes) element storage; parameters_: N live elements each: name_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; parameters_: N live elements each: description_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; parameters_: N live elements each: default_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; parameters_: N live elements each: validatorMessage_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; parameters_: N live elements each: aliases_: Capacity * (24 bytes) element storage; parameters_: N live elements each: aliases_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; parameters_: N live elements each: choices_: Capacity * (24 bytes) element storage; parameters_: N live elements each: choices_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; before_: Capacity * (4 bytes) element storage; after_: Capacity * (4 bytes) element storage]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class CommandNode {
 public:
     using Callback = std::function<CommandResult(const CommandContext&)>;
@@ -541,13 +456,7 @@ private:
 };
 
 /// <summary>Tokenizes shell-like command text with quoting and backslash escaping.</summary>
-/**
- * ESPressio Memory Audit
- * Members: none (standalone empty object occupies 1 byte; an eligible empty base may be optimized to 0 bytes).
- * Total Memory: 1 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class TextCommandParser {
 public:
     /// <summary>Splits command text into System-backed tokens.</summary>
@@ -585,16 +494,7 @@ public:
 
 /// <summary>Move-only RAII handle for a registered top-level command.</summary>
 /// <remarks>Destroying or resetting an active handle unregisters its externally-backed command path.</remarks>
-/**
- * ESPressio Memory Audit
- * Members:
- * - registry_ (CommandRegistry*): 4 bytes [0 bytes dynamic allocation]
- * - path_ (CommandPath): 12 bytes [Capacity * (24 bytes) element storage; N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Total Memory: 16 bytes [path_: Capacity * (24 bytes) element storage; path_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class CommandRegistrationHandle {
 public:
     CommandRegistrationHandle() = default;
@@ -624,27 +524,10 @@ private:
 };
 
 /// <summary>Owns a hierarchical command tree and performs parsing, binding, validation, middleware execution, invocation, help, and completion.</summary>
-/**
- * ESPressio Memory Audit
- * Members:
- * - root_ (CommandNode): 140 bytes [name_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; description_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; deprecationMessage_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; aliases_: Capacity * (24 bytes) element storage; aliases_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; children_: Capacity * (8 bytes) element storage; children_: N live elements each: owned object: sizeof(CommandNode) (target/toolchain dependent); parameters_: Capacity * (160 bytes) element storage; parameters_: N live elements each: name_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; parameters_: N live elements each: description_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; parameters_: N live elements each: default_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; parameters_: N live elements each: validatorMessage_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; parameters_: N live elements each: aliases_: Capacity * (24 bytes) element storage; parameters_: N live elements each: aliases_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; parameters_: N live elements each: choices_: Capacity * (24 bytes) element storage; parameters_: N live elements each: choices_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; before_: Capacity * (4 bytes) element storage; after_: Capacity * (4 bytes) element storage]
- * - middleware_ (MiddlewareStorage): 12 bytes [Capacity * (4 bytes) element storage]
- * - observable_ (std::shared_ptr<RegistryObservable>): 8 bytes [shared control block (~12+ bytes; allocate_shared may co-locate object) + object 52 bytes; pointee: Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; pointee: Observable: _registrations: Capacity * (12 bytes) element storage; pointee: Observable: _bindings: Capacity * (12 bytes) element storage]
- * Total Memory: 160 bytes [root_: name_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; root_: description_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; root_: deprecationMessage_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; root_: aliases_: Capacity * (24 bytes) element storage; root_: aliases_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; root_: children_: Capacity * (8 bytes) element storage; root_: children_: N live elements each: owned object: sizeof(CommandNode) (target/toolchain dependent); root_: parameters_: Capacity * (160 bytes) element storage; root_: parameters_: N live elements each: name_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; root_: parameters_: N live elements each: description_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; root_: parameters_: N live elements each: default_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; root_: parameters_: N live elements each: validatorMessage_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; root_: parameters_: N live elements each: aliases_: Capacity * (24 bytes) element storage; root_: parameters_: N live elements each: aliases_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; root_: parameters_: N live elements each: choices_: Capacity * (24 bytes) element storage; root_: parameters_: N live elements each: choices_: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO; root_: before_: Capacity * (4 bytes) element storage; root_: after_: Capacity * (4 bytes) element storage; middleware_: Capacity * (4 bytes) element storage; observable_: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 52 bytes; observable_: pointee: Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; observable_: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; observable_: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; observable_: pointee: Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; observable_: pointee: Observable: _registrations: Capacity * (12 bytes) element storage; observable_: pointee: Observable: _bindings: Capacity * (12 bytes) element storage]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class CommandRegistry {
 private:
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 52 bytes [Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; Observable: _registrations: Capacity * (12 bytes) element storage; Observable: _bindings: Capacity * (12 bytes) element storage]
- * Members: none (standalone empty object occupies 1 byte; an eligible empty base may be optimized to 0 bytes).
- * Total Memory: 52 bytes [Observable: IUntypedObservable: IObservable: enable_shared_from_this: embedded weak_ptr shares a control block when activated; Observable: IUntypedObservable: IObservable: _lifetimeControl: shared control block (~12+ bytes; allocate_shared may co-locate object) + object 20 bytes; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _mutex: native synchronization state may allocate platform resources lazily; Observable: IUntypedObservable: IObservable: _lifetimeControl: pointee: _condition: native condition-variable state may allocate platform synchronization resources; Observable: _registrations: Capacity * (12 bytes) element storage; Observable: _bindings: Capacity * (12 bytes) element storage]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class RegistryObservable final : public Observable::Observable {
         template<typename Callback>
         void Notify(Callback&& callback) {

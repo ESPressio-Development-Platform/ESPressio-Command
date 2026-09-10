@@ -5,14 +5,7 @@
 namespace ESPressio::Command {
 
 /// <summary>Thin fluent facade over a command registry for command construction and invocation.</summary>
-/**
- * ESPressio Memory Audit
- * Members:
- * - registry_ (CommandRegistry&): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 4 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class CommandFactory {
 public:
     /// <summary>Creates a factory backed by the supplied command registry.</summary>

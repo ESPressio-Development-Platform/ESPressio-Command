@@ -37,19 +37,7 @@ inline constexpr Primitive::PrimitiveFamilyId CommandFamilyId = Primitive::Famil
 /// Correlation may associate it with other independent conceptual messages.
 /// Payload bytes are Command-family data and remain opaque to lower transports.
 /// </remarks>
-/**
- * ESPressio Memory Audit
- * Members:
- * - MessageId (CommandMessageId): 8 bytes [0 bytes dynamic allocation]
- * - ProtocolVersion (CommandProtocolVersion): 2 bytes [0 bytes dynamic allocation]
- * - Correlation (CommandCorrelationId): 8 bytes [0 bytes dynamic allocation]
- * - PayloadLength (std::uint16_t): 2 bytes [0 bytes dynamic allocation]
- * - Payload (std::array<std::uint8_t, ESPRESSIO_COMMAND_MAX_PAYLOAD_LENGTH>): ESPRESSIO_COMMAND_MAX_PAYLOAD_LENGTH * (1 bytes) [0 bytes dynamic allocation]
- * Total Memory: 22 bytes known/aligned storage + ESPRESSIO_COMMAND_MAX_PAYLOAD_LENGTH * (1 bytes) [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: low; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 struct CommandMessage final {
     /// <summary>Conceptual identity preserved across serialization and transport.</summary>
     CommandMessageId MessageId{};

@@ -7,14 +7,7 @@
 namespace ESPressio::Command {
 
 /// <summary>Executes textual command input through a command registry.</summary>
-/**
- * ESPressio Memory Audit
- * Members:
- * - registry_ (CommandRegistry&): 4 bytes [0 bytes dynamic allocation]
- * Total Memory: 4 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class TextCommandInterpreter {
 public:
     /// <summary>Creates a text interpreter backed by the supplied command registry.</summary>

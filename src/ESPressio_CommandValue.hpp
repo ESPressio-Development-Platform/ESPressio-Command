@@ -24,14 +24,7 @@ using CommandStringStorage = System::Memory::String<
 
 /// <summary>System-backed command text with source-compatible standard-string boundaries.</summary>
 /// <remarks>Dynamic storage remains governed by the ESPressio System external-preferred memory policy. Standard-string conversion is provided only for interoperability with existing transport and application boundaries.</remarks>
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Members: none (standalone empty object occupies 1 byte; an eligible empty base may be optimized to 0 bytes).
- * Total Memory: 24 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 class CommandString : public CommandStringStorage {
 public:
     using Base = CommandStringStorage;
@@ -55,25 +48,11 @@ public:
 };
 
 /// <summary>Represents a command scalar value as null, text, boolean, signed or unsigned integer, or floating-point data.</summary>
-/**
- * ESPressio Memory Audit
- * Members:
- * - value_ (Storage): 28 bytes [CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Total Memory: 28 bytes [value_: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class CommandValue {
 public:
     /// <summary>Identifies the scalar representation currently stored by a <c>CommandValue</c>.</summary>
-/**
- * ESPressio Memory Audit
- * Underlying storage: 4 bytes
- * Total Memory: 4 bytes [0 bytes dynamic allocation]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * End ESPressio Memory Audit
- */
+
 enum class Type {
         Null,
         String,

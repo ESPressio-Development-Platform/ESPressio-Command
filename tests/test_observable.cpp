@@ -5,18 +5,7 @@
 
 using namespace ESPressio::Command;
 
-/**
- * ESPressio Memory Audit
- * Inherited Memory Total: 4 bytes [0 bytes dynamic allocation]
- * Members:
- * - Registered (int): 4 bytes [0 bytes dynamic allocation]
- * - Unregistered (int): 4 bytes [0 bytes dynamic allocation]
- * - LastPath (CommandPath): 16 bytes [Capacity * (24 bytes) element storage; N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Total Memory: 28 bytes [LastPath: Capacity * (24 bytes) element storage; LastPath: N live elements each: CommandStringStorage: _value: Capacity + 1 bytes when capacity exceeds 15-byte SSO]
- * Basis: ESP32/Xtensa ILP32 reference ABI (4-byte pointers/size_t); ESPressio stateful allocators/deleters included; ABI-sensitive STL/platform internals are identified explicitly.
- * Confidence: medium; compile-time sizeof on the concrete target remains authoritative for ABI-sensitive/opaque members.
- * End ESPressio Memory Audit
- */
+
 class Observer final : public ICommandRegistryObserver {
 public:
     int Registered = 0;
