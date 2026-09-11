@@ -20,6 +20,8 @@ jobs:
         with: {repository: ESPressio-Development-Platform/ESPressio-Serializable, ref: primitives_redesign, path: deps/ESPressio-Serializable}
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Units, ref: primitives_redesign, path: deps/ESPressio-Units}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Observable, ref: primitives_redesign, path: deps/ESPressio-Observable}
       - name: Reject predecessor core coupling
         shell: bash
         run: |
@@ -51,6 +53,8 @@ jobs:
         with: {repository: ESPressio-Development-Platform/ESPressio-Serializable, ref: primitives_redesign, path: project/dependencies/ESPressio-Serializable}
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Units, ref: primitives_redesign, path: project/dependencies/ESPressio-Units}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Observable, ref: primitives_redesign, path: project/dependencies/ESPressio-Observable}
       - uses: actions/setup-python@v5
         with: {python-version: '3.x'}
       - run: pip install platformio
@@ -72,6 +76,7 @@ jobs:
               ../dependencies/ESPressio-Task
               ../dependencies/ESPressio-Timing
               ../dependencies/ESPressio-Units
+              ../dependencies/ESPressio-Observable
               ../dependencies/ESPressio-Threads
               ../dependencies/ESPressio-Serializable
               ../ESPressio-Command
