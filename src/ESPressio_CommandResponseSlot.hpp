@@ -2,6 +2,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <mutex>
 #include <new>
 #include <type_traits>
@@ -26,12 +27,18 @@ private:
         System::DeviceRuntimeIdentity Executor{};
         CommandResponseDisposition Disposition=CommandResponseDisposition::Succeeded;
         bool Constructed=false;
+        bool RetentionReserved=false;
         alignas(TResponse) std::byte Storage[sizeof(TResponse)];
     };
     std::array<Slot,N> _slots{};
     mutable System::Synchronization::Mutex _mutex;
     void* _wakeOwner=nullptr;
     void (*_capacityChanged)(void*) noexcept=nullptr;
+    void* _retentionOwner=nullptr;
+    bool (*_reserveRetention)(void*,const CommandExecutionKey&) noexcept=nullptr;
+    void (*_abandonRetention)(void*,const CommandExecutionKey&) noexcept=nullptr;
+    bool (*_persistRetention)(void*,const CommandExecutionKey&,const System::DeviceRuntimeIdentity&,const TResponse&) noexcept=nullptr;
+    bool (*_retireRetention)(void*,const CommandExecutionKey&) noexcept=nullptr;
 
     static void ReleaseLease(void* context) noexcept {
         auto* slot=static_cast<Slot*>(context);
@@ -56,7 +63,18 @@ public:
     CommandResponseSlotPool& operator=(const CommandResponseSlotPool&)=delete;
 
     void BindCapacityWake(void* owner,void(*wake)(void*) noexcept) noexcept {
-        std::lock_guard<System::Synchronization::Mutex> lock(_mutex);_wakeOwner=owner;_capacityChanged=wake;
+        std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
+        _wakeOwner=owner;_capacityChanged=wake;
+    }
+    void BindPersistentRetention(
+        void* owner,
+        bool(*reserve)(void*,const CommandExecutionKey&) noexcept,
+        void(*abandon)(void*,const CommandExecutionKey&) noexcept,
+        bool(*persist)(void*,const CommandExecutionKey&,const System::DeviceRuntimeIdentity&,const TResponse&) noexcept,
+        bool(*retire)(void*,const CommandExecutionKey&) noexcept) noexcept {
+        if(!owner || !reserve || !abandon || !persist || !retire) std::terminate();
+        if(_retentionOwner || _reserveRetention || _abandonRetention || _persistRetention || _retireRetention) std::terminate();
+        _retentionOwner=owner;_reserveRetention=reserve;_abandonRetention=abandon;_persistRetention=persist;_retireRetention=retire;
     }
     Handle TryReserve(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
         if(!key.IsValid() || !destination) return {};
@@ -65,8 +83,10 @@ public:
         for(std::size_t i=0;i<N;++i){
             auto& slot=_slots[i];
             if(slot.State!=DestinationResponseSlotState::Free) continue;
+            const bool retention=_reserveRetention!=nullptr;
+            if(retention && !_reserveRetention(_retentionOwner,key)) return {};
             slot.State=DestinationResponseSlotState::ReservedForRequest;slot.Key=key;slot.Destination=destination;
-            slot.Executor={};slot.Disposition=CommandResponseDisposition::Succeeded;slot.Constructed=false;
+            slot.Executor={};slot.Disposition=CommandResponseDisposition::Succeeded;slot.Constructed=false;slot.RetentionReserved=retention;
             return {static_cast<std::uint16_t>(i)};
         }
         return {};
@@ -80,6 +100,18 @@ public:
         auto& slot=_slots[handle.Index];
         if(slot.State!=DestinationResponseSlotState::ReservedForRequest) return false;
         if((disposition==CommandResponseDisposition::Succeeded)!=payloadConstructed) return false;
+        if(slot.RetentionReserved){
+            if(disposition==CommandResponseDisposition::Succeeded){
+                if(!_persistRetention || !payloadConstructed) return false;
+                const auto* payload=std::launder(reinterpret_cast<const TResponse*>(slot.Storage));
+                if(!_persistRetention(_retentionOwner,slot.Key,executor,*payload)) return false;
+                slot.RetentionReserved=false;
+            }else{
+                _abandonRetention(_retentionOwner,slot.Key);
+                slot.RetentionReserved=false;
+                if(_capacityChanged) _capacityChanged(_wakeOwner);
+            }
+        }
         slot.Disposition=disposition;slot.Executor=executor;slot.Constructed=payloadConstructed;
         slot.State=DestinationResponseSlotState::Ready;
         return true;
@@ -104,19 +136,26 @@ public:
             slot.State=DestinationResponseSlotState::RoutedOrRetained;
             lease=CommandResponsePayloadLease(payload,&slot,&ReleaseLease);
         }
-        return destination.TryAccept(key,executor,disposition,std::move(lease));
+        const bool accepted=destination.TryAccept(key,executor,disposition,std::move(lease));
+        if(accepted && disposition==CommandResponseDisposition::Succeeded && _retireRetention){
+            if(!_retireRetention(_retentionOwner,key)) std::terminate();
+            if(_capacityChanged) _capacityChanged(_wakeOwner);
+        }
+        return accepted;
     }
     void Release(Handle handle) noexcept {
-        bool released=false;
+        bool released=false,abandonRetention=false;
+        CommandExecutionKey key{};
         {
             std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
             if(!handle || handle.Index>=N) return;
             auto& slot=_slots[handle.Index];
             if(slot.State==DestinationResponseSlotState::Free) return;
+            abandonRetention=slot.RetentionReserved;key=slot.Key;
             if(slot.Constructed){std::launder(reinterpret_cast<TResponse*>(slot.Storage))->~TResponse();slot.Constructed=false;}
-            auto* owner=slot.Owner;const auto index=slot.Index;
-            slot=Slot{};slot.Owner=owner;slot.Index=index;released=true;
+            auto* owner=slot.Owner;const auto index=slot.Index;slot=Slot{};slot.Owner=owner;slot.Index=index;released=true;
         }
+        if(abandonRetention && _abandonRetention) _abandonRetention(_retentionOwner,key);
         if(released && _capacityChanged) _capacityChanged(_wakeOwner);
     }
     DestinationResponseSlotState State(Handle handle) const noexcept {
