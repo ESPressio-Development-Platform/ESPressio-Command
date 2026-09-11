@@ -1,5 +1,5 @@
 #include <ESPressio_Commands.hpp>
-#include <ESPressio_Serializable.hpp>
+#include <ESPressio_SerializationMacros.hpp>
 #include <HostRuntime.hpp>
 #include <array>
 #include <atomic>
