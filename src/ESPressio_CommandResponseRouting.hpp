@@ -42,6 +42,27 @@ public:
     }
 };
 
+/// <summary>Adapter-neutral, pre-reserved destination for one exact remote requester.</summary>
+/// <remarks>The Index/Generation pair is opaque family-private route state supplied by the binding adapter.
+/// Accepted means the adapter has synchronously taken bounded ownership of the semantic response; Command owns
+/// no route, packet, retry worker, Radio address or Mesh state.</remarks>
+struct CommandRemoteResponseDestination final {
+    void* Context=nullptr;
+    std::uint16_t Index=UINT16_MAX;
+    std::uint64_t Generation=0;
+    bool (*Accept)(void*,std::uint16_t,std::uint64_t,const CommandExecutionKey&,
+                   const System::DeviceRuntimeIdentity&,CommandResponseDisposition,
+                   CommandResponsePayloadLease&&) noexcept=nullptr;
+    bool TryAccept(const CommandExecutionKey& key,const System::DeviceRuntimeIdentity& executor,
+                   CommandResponseDisposition disposition,CommandResponsePayloadLease&& payload) const noexcept {
+        return Accept && Accept(Context,Index,Generation,key,executor,disposition,std::move(payload));
+    }
+    constexpr explicit operator bool() const noexcept {
+        return Context && Index!=UINT16_MAX && Generation && Accept;
+    }
+};
+static_assert(std::is_trivially_copyable_v<CommandRemoteResponseDestination>);
+
 namespace Detail {
 
 /// <summary>Allocation-free live requester route backed by one ResponseCapability lifecycle slot.</summary>
@@ -63,22 +84,7 @@ struct CommandRequesterRoute final {
     }
 };
 
-/// <summary>Responder-side immutable destination for one exact requester expectation.</summary>
-struct CommandResponseDestination final {
-    void* Context=nullptr;
-    std::uint16_t Index=UINT16_MAX;
-    std::uint64_t Generation=0;
-    bool (*Accept)(void*,std::uint16_t,std::uint64_t,const CommandExecutionKey&,
-                   const System::DeviceRuntimeIdentity&,CommandResponseDisposition,
-                   CommandResponsePayloadLease&&) noexcept=nullptr;
-    bool TryAccept(const CommandExecutionKey& key,const System::DeviceRuntimeIdentity& executor,
-                   CommandResponseDisposition disposition,CommandResponsePayloadLease&& payload) const noexcept {
-        return Accept && Accept(Context,Index,Generation,key,executor,disposition,std::move(payload));
-    }
-    constexpr explicit operator bool() const noexcept {
-        return Context && Index!=UINT16_MAX && Generation && Accept;
-    }
-};
+using CommandResponseDestination=CommandRemoteResponseDestination;
 
 inline CommandResponseDestination AsResponseDestination(const CommandRequesterRoute& route) noexcept {
     return {route.Context,route.Index,route.Generation,route.AcceptResponse};

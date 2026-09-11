@@ -28,6 +28,7 @@ private:
         CommandResponseDisposition Disposition=CommandResponseDisposition::Succeeded;
         bool Constructed=false;
         bool RetentionReserved=false;
+        bool RetireRetentionOnAdmission=false;
         alignas(TResponse) std::byte Storage[sizeof(TResponse)];
     };
     std::array<Slot,N> _slots{};
@@ -49,6 +50,27 @@ private:
     }
     static void AbandonThunk(void* context,std::uint16_t index) noexcept {
         static_cast<CommandResponseSlotPool*>(context)->Release(Handle{index});
+    }
+    Handle TryReserveInternal(const CommandExecutionKey& key,Detail::CommandResponseDestination destination,
+                              bool reserveRetention,bool retireRetention) noexcept {
+        if(!key.IsValid() || !destination) return {};
+        std::unique_lock<System::Synchronization::Mutex> lock(_mutex,std::try_to_lock);
+        if(!lock.owns_lock()) return {};
+        for(std::size_t i=0;i<N;++i){
+            auto& slot=_slots[i];
+            if(slot.State!=DestinationResponseSlotState::Free) continue;
+            if(reserveRetention && (!_reserveRetention || !_reserveRetention(_retentionOwner,key))) return {};
+            slot.State=DestinationResponseSlotState::ReservedForRequest;
+            slot.Key=key;
+            slot.Destination=destination;
+            slot.Executor={};
+            slot.Disposition=CommandResponseDisposition::Succeeded;
+            slot.Constructed=false;
+            slot.RetentionReserved=reserveRetention;
+            slot.RetireRetentionOnAdmission=retireRetention;
+            return {static_cast<std::uint16_t>(i)};
+        }
+        return {};
     }
 public:
     CommandResponseSlotPool() noexcept {
@@ -76,18 +98,25 @@ public:
         if(_retentionOwner || _reserveRetention || _abandonRetention || _persistRetention || _retireRetention) std::terminate();
         _retentionOwner=owner;_reserveRetention=reserve;_abandonRetention=abandon;_persistRetention=persist;_retireRetention=retire;
     }
+    /// Executor-side response reservation. Persistent Types reserve result-retention budget here.
     Handle TryReserve(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
-        if(!key.IsValid() || !destination) return {};
-        std::unique_lock<System::Synchronization::Mutex> lock(_mutex,std::try_to_lock);
-        if(!lock.owns_lock()) return {};
+        return TryReserveInternal(key,destination,_reserveRetention!=nullptr,false);
+    }
+    /// Requester-side reservation used by ExecuteTo before outbound transport admission.
+    /// No executor-side result retention is reserved or retired on this node.
+    Handle TryReserveRemoteRequester(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
+        return TryReserveInternal(key,destination,false,false);
+    }
+    /// Duplicate/recovery replay of an already-retained persistent result. Successful destination admission retires it.
+    Handle TryReserveRetainedReplay(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
+        return TryReserveInternal(key,destination,false,true);
+    }
+    Handle FindReserved(const CommandExecutionKey& key) const noexcept {
+        std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
         for(std::size_t i=0;i<N;++i){
-            auto& slot=_slots[i];
-            if(slot.State!=DestinationResponseSlotState::Free) continue;
-            const bool retention=_reserveRetention!=nullptr;
-            if(retention && !_reserveRetention(_retentionOwner,key)) return {};
-            slot.State=DestinationResponseSlotState::ReservedForRequest;slot.Key=key;slot.Destination=destination;
-            slot.Executor={};slot.Disposition=CommandResponseDisposition::Succeeded;slot.Constructed=false;slot.RetentionReserved=retention;
-            return {static_cast<std::uint16_t>(i)};
+            const auto& slot=_slots[i];
+            if(slot.State==DestinationResponseSlotState::ReservedForRequest && slot.Key==key)
+                return {static_cast<std::uint16_t>(i)};
         }
         return {};
     }
@@ -106,6 +135,7 @@ public:
                 const auto* payload=std::launder(reinterpret_cast<const TResponse*>(slot.Storage));
                 if(!_persistRetention(_retentionOwner,slot.Key,executor,*payload)) return false;
                 slot.RetentionReserved=false;
+                slot.RetireRetentionOnAdmission=true;
             }else{
                 _abandonRetention(_retentionOwner,slot.Key);
                 slot.RetentionReserved=false;
@@ -125,6 +155,7 @@ public:
         CommandExecutionKey key{};
         System::DeviceRuntimeIdentity executor{};
         CommandResponseDisposition disposition=CommandResponseDisposition::Succeeded;
+        bool retireRetention=false;
         CommandResponsePayloadLease lease;
         {
             std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
@@ -132,13 +163,14 @@ public:
             auto& slot=_slots[handle.Index];
             if(slot.State!=DestinationResponseSlotState::Ready || !slot.Destination) return false;
             destination=slot.Destination;key=slot.Key;executor=slot.Executor;disposition=slot.Disposition;
+            retireRetention=slot.RetireRetentionOnAdmission;
             const void* payload=slot.Constructed?std::launder(reinterpret_cast<const TResponse*>(slot.Storage)):nullptr;
             slot.State=DestinationResponseSlotState::RoutedOrRetained;
             lease=CommandResponsePayloadLease(payload,&slot,&ReleaseLease);
         }
         const bool accepted=destination.TryAccept(key,executor,disposition,std::move(lease));
-        if(accepted && disposition==CommandResponseDisposition::Succeeded && _retireRetention){
-            if(!_retireRetention(_retentionOwner,key)) std::terminate();
+        if(accepted && disposition==CommandResponseDisposition::Succeeded && retireRetention){
+            if(!_retireRetention || !_retireRetention(_retentionOwner,key)) std::terminate();
             if(_capacityChanged) _capacityChanged(_wakeOwner);
         }
         return accepted;
