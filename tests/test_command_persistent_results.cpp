@@ -99,9 +99,12 @@ public:
     Persistence::AtomicRecordStatus RemoveAfterCommit(const Persistence::AtomicRecordKey& key) noexcept override {
         for(auto& entry:_entries){
             if(!entry.Used||!(entry.Key==key)) continue;
-            entry=Entry{};if(_trace&&_removeEvent) _trace->Add(_removeEvent);return Persistence::AtomicRecordStatus::Success;
+            entry=Entry{};
+            if(_trace&&_removeEvent) _trace->Add(_removeEvent);
+            return Persistence::AtomicRecordStatus::Success;
         }
-        if(_trace&&_removeEvent) _trace->Add(_removeEvent);return Persistence::AtomicRecordStatus::Success;
+        if(_trace&&_removeEvent) _trace->Add(_removeEvent);
+        return Persistence::AtomicRecordStatus::Success;
     }
     std::size_t Present() const noexcept { std::size_t count=0;for(const auto& entry:_entries) if(entry.Used) ++count;return count; }
     void RemoveFirst() noexcept { for(auto& entry:_entries) if(entry.Used){entry=Entry{};return;} }
