@@ -30,7 +30,7 @@ struct PersistentResponse final {
 struct PersistentRetentionPolicy {
     static constexpr std::size_t MaximumTrackedOrigins=2;
     static constexpr std::size_t ReplayWindowEntries=3;
-    using ResultRetention=C::PersistentResults<2,128>;
+    using ResultRetention=C::PersistentResults<2,512>;
 };
 struct PersistentCommand final : C::TransmissibleCommand<PersistentCommand,PersistentResponse> {
     static constexpr C::CommandTypeId TypeId{92};
@@ -77,41 +77,33 @@ public:
         bytesRead=0;
         for(const auto& entry:_entries){
             if(!entry.Used || !(entry.Key==key)) continue;
-            if(!buffer || capacity<entry.Size) return Persistence::AtomicRecordStatus::BufferTooSmall;
-            std::memcpy(buffer,entry.Bytes.data(),entry.Size);bytesRead=entry.Size;
-            return Persistence::AtomicRecordStatus::Success;
+            if(!buffer||capacity<entry.Size) return Persistence::AtomicRecordStatus::BufferTooSmall;
+            std::memcpy(buffer,entry.Bytes.data(),entry.Size);bytesRead=entry.Size;return Persistence::AtomicRecordStatus::Success;
         }
         return Persistence::AtomicRecordStatus::NotFound;
     }
-    Persistence::AtomicRecordStatus ReplaceAtomically(const Persistence::AtomicRecordKey& key,
-                                                       const std::uint8_t* data,std::size_t size) noexcept override {
+    Persistence::AtomicRecordStatus ReplaceAtomically(const Persistence::AtomicRecordKey& key,const std::uint8_t* data,std::size_t size) noexcept override {
         const auto injected=NextReplace;NextReplace=Persistence::AtomicRecordStatus::Success;
         if(injected!=Persistence::AtomicRecordStatus::Success) return injected;
-        if(!key || !data || size>RecordBytes) return Persistence::AtomicRecordStatus::NoSpace;
+        if(!key||!data||size>RecordBytes) return Persistence::AtomicRecordStatus::NoSpace;
         Entry* target=nullptr;
         for(auto& entry:_entries){
-            if(entry.Used && entry.Key==key){target=&entry;break;}
-            if(!entry.Used && !target) target=&entry;
+            if(entry.Used&&entry.Key==key){target=&entry;break;}
+            if(!entry.Used&&!target) target=&entry;
         }
         if(!target) return Persistence::AtomicRecordStatus::NoSpace;
-        target->Used=true;target->Key=key;target->Size=size;
-        std::memcpy(target->Bytes.data(),data,size);
-        if(_trace && _replaceEvent) _trace->Add(_replaceEvent);
+        target->Used=true;target->Key=key;target->Size=size;std::memcpy(target->Bytes.data(),data,size);
+        if(_trace&&_replaceEvent) _trace->Add(_replaceEvent);
         return Persistence::AtomicRecordStatus::Success;
     }
     Persistence::AtomicRecordStatus RemoveAfterCommit(const Persistence::AtomicRecordKey& key) noexcept override {
         for(auto& entry:_entries){
-            if(!entry.Used || !(entry.Key==key)) continue;
-            entry=Entry{};
-            if(_trace && _removeEvent) _trace->Add(_removeEvent);
-            return Persistence::AtomicRecordStatus::Success;
+            if(!entry.Used||!(entry.Key==key)) continue;
+            entry=Entry{};if(_trace&&_removeEvent) _trace->Add(_removeEvent);return Persistence::AtomicRecordStatus::Success;
         }
-        if(_trace && _removeEvent) _trace->Add(_removeEvent);
-        return Persistence::AtomicRecordStatus::Success;
+        if(_trace&&_removeEvent) _trace->Add(_removeEvent);return Persistence::AtomicRecordStatus::Success;
     }
-    std::size_t Present() const noexcept {
-        std::size_t count=0;for(const auto& entry:_entries) if(entry.Used) ++count;return count;
-    }
+    std::size_t Present() const noexcept { std::size_t count=0;for(const auto& entry:_entries) if(entry.Used) ++count;return count; }
     void RemoveFirst() noexcept { for(auto& entry:_entries) if(entry.Used){entry=Entry{};return;} }
 };
 
@@ -134,8 +126,8 @@ struct PersistentCapabilityHost final {
 };
 struct PersistentOwner final {
     std::atomic<int> Handled{0};int Callbacks=0;int LastValue=0;
-    PersistentResponse Handle(const PersistentCommand& request,const C::CommandExecutionContext&) { ++Handled;return {request.Value+5}; }
-    void OnResult(const C::CommandCompletion<PersistentCommand>& completion) {
+    PersistentResponse Handle(const PersistentCommand& request,const C::CommandExecutionContext&){++Handled;return {request.Value+5};}
+    void OnResult(const C::CommandCompletion<PersistentCommand>& completion){
         ++Callbacks;assert(completion.Kind()==C::CommandCallerCompletionKind::Response);
         assert(completion.Disposition()==C::CommandResponseDisposition::Succeeded);
         const auto* response=completion.ResponseValue();assert(response);LastValue=response->Value;
@@ -145,13 +137,15 @@ struct PersistentOwner final {
 int main(){
     static_assert(C::CommandExecutionLedger<PersistentCommand>::UsesPersistentResults);
     static_assert(C::CommandExecutionLedger<PersistentCommand>::MaximumPersistentResults==2);
-    static_assert(C::CommandExecutionLedger<PersistentCommand>::MaximumPersistentResultBytes==128);
+    static_assert(C::CommandExecutionLedger<PersistentCommand>::MaximumPersistentResultBytes==512);
+    static_assert(Serializable::MaximumSerializedSize<PersistentResponse,Serializable::JSON> > 128);
+    static_assert(Serializable::MaximumSerializedSize<PersistentResponse,Serializable::JSON> <= 512);
     HostRuntime platform;
     System::DeviceIdentifier::Storage local{};local[0]=9;
     const System::DeviceRuntimeIdentity executor{System::DeviceIdentifier{local},System::RuntimeIncarnationId{50}};
     assert(System::RuntimeIdentity::Install(executor)==System::RuntimeIdentity::InstallationStatus::Success);
 
-    using Store=FixedAtomicStore<512,8>;
+    using Store=FixedAtomicStore<1024,8>;
     const auto ledgerKey=PersistentKey("persistent-ledger");
     Store ledgerStore;Store resultStore;
     C::CommandExecutionLedger<PersistentCommand> ledger;
@@ -167,7 +161,7 @@ int main(){
     auto retained=ledger.Classify(first);
     assert(retained.Status==C::CommandRemoteAdmissionStatus::DuplicateTerminal);
     assert(retained.Disposition==C::CommandResponseDisposition::Succeeded);
-    assert(ledger.RetainedResultCount()==1 && resultStore.Present()==1);
+    assert(ledger.RetainedResultCount()==1&&resultStore.Present()==1);
 
     C::CommandExecutionLedger<PersistentCommand> reloaded;
     assert(reloaded.Bind({&ledgerStore,ledgerKey,&resultStore,C::CommandPayloadFormat::DirectBinary,true})==C::CommandRuntimeStatus::Success);
@@ -177,8 +171,7 @@ int main(){
     assert(resultStore.Present()==0);
     assert(reloaded.Classify(first).Disposition==C::CommandResponseDisposition::AlreadyExecutedResultExpired);
 
-    Store proofLedger;Store proofResults;
-    C::CommandExecutionLedger<PersistentCommand> proof;
+    Store proofLedger;Store proofResults;C::CommandExecutionLedger<PersistentCommand> proof;
     const auto proofLedgerKey=PersistentKey("proof-ledger");const auto proofExecution=PersistentExecution(2,1,1);
     assert(proof.Bind({&proofLedger,proofLedgerKey,&proofResults,C::CommandPayloadFormat::CBOR,true})==C::CommandRuntimeStatus::Success);
     assert(proof.Initialize()==C::CommandRuntimeStatus::Success);assert(proof.ReservePersistentResult(proofExecution));
@@ -192,10 +185,9 @@ int main(){
     assert(proofReload.Bind({&proofLedger,proofLedgerKey,&proofResults,C::CommandPayloadFormat::CBOR,true})==C::CommandRuntimeStatus::Success);
     assert(proofReload.Initialize()==C::CommandRuntimeStatus::Success);
     const auto promoted=proofReload.Classify(proofExecution);
-    assert(promoted.Status==C::CommandRemoteAdmissionStatus::DuplicateTerminal && promoted.Disposition==C::CommandResponseDisposition::Succeeded);
+    assert(promoted.Status==C::CommandRemoteAdmissionStatus::DuplicateTerminal&&promoted.Disposition==C::CommandResponseDisposition::Succeeded);
 
-    Store missingLedger;Store missingResults;
-    C::CommandExecutionLedger<PersistentCommand> missing;
+    Store missingLedger;Store missingResults;C::CommandExecutionLedger<PersistentCommand> missing;
     const auto missingLedgerKey=PersistentKey("missing-ledger");const auto missingExecution=PersistentExecution(3,1,1);
     assert(missing.Bind({&missingLedger,missingLedgerKey,&missingResults,C::CommandPayloadFormat::JSON,true})==C::CommandRuntimeStatus::Success);
     assert(missing.Initialize()==C::CommandRuntimeStatus::Success);assert(missing.ReservePersistentResult(missingExecution));
@@ -229,7 +221,7 @@ int main(){
     assert(responses.FinalizeInitialization()==Threads::ThreadStatus::Success);auto client=responses.Client(owner);
     trace.Reset();auto submitted=client.Execute<PersistentCommand,&PersistentOwner::OnResult>(std::chrono::milliseconds(500),70);assert(submitted.Accepted());
     PersistentEventually([&]{return responses.ReadyCompletions()==1;});
-    assert(trace.Count>=5 && trace.Events[0]=='L' && trace.Events[1]=='R' && trace.Events[2]=='L' && trace.Events[3]=='L' && trace.Events[4]=='D');
+    assert(trace.Count>=5&&trace.Events[0]=='L'&&trace.Events[1]=='R'&&trace.Events[2]=='L'&&trace.Events[3]=='L'&&trace.Events[4]=='D');
     assert(runtimeResults.Present()==0);responses.Service({host.Now.load(),services});
-    assert(owner.Callbacks==1 && owner.LastValue==75);assert(runtime.Shutdown()==C::CommandRuntimeStatus::Success);
+    assert(owner.Callbacks==1&&owner.LastValue==75);assert(runtime.Shutdown()==C::CommandRuntimeStatus::Success);
 }
