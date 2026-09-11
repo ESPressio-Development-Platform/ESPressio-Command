@@ -80,6 +80,9 @@ struct CommandRemoteAdmissionResult final {
 };
 
 enum class CommandPayloadFormat : std::uint8_t { DirectBinary, CBOR, JSON };
+constexpr bool IsValidCommandPayloadFormat(CommandPayloadFormat value) noexcept {
+    return static_cast<std::uint8_t>(value)<=static_cast<std::uint8_t>(CommandPayloadFormat::JSON);
+}
 enum class CommandMessageKind : std::uint8_t { Request=1, Response=2 };
 
 enum class CommandCallerCompletionKind : std::uint8_t {
