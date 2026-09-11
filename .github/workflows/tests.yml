@@ -18,6 +18,8 @@ jobs:
         with: {repository: ESPressio-Development-Platform/ESPressio-Timing, ref: primitives_redesign, path: deps/ESPressio-Timing}
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Serializable, ref: primitives_redesign, path: deps/ESPressio-Serializable}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Units, ref: primitives_redesign, path: deps/ESPressio-Units}
       - name: Reject predecessor core coupling
         shell: bash
         run: |

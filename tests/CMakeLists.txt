@@ -6,7 +6,7 @@ set(ESPRESSIO_DEPENDENCIES "${CMAKE_CURRENT_LIST_DIR}/../.." CACHE PATH "Depende
 find_package(Threads REQUIRED)
 enable_testing()
 set(COMMAND_INCLUDES ../src)
-foreach(dependency System Primitive Task Threads Timing Serializable)
+foreach(dependency System Primitive Task Threads Timing Serializable Units)
     list(APPEND COMMAND_INCLUDES "${ESPRESSIO_DEPENDENCIES}/ESPressio-${dependency}/src")
 endforeach()
 list(APPEND COMMAND_INCLUDES "${ESPRESSIO_DEPENDENCIES}/ESPressio-Timing/tests/stubs" "${ESPRESSIO_DEPENDENCIES}/ESPressio-Task/tests")
