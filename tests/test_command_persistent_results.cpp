@@ -6,6 +6,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstring>
+#include <mutex>
 #include <string_view>
 #include <thread>
 using namespace ESPressio;
@@ -50,10 +51,28 @@ struct PersistentCommand final : C::TransmissibleCommand<PersistentCommand,Persi
 };
 
 struct Trace final {
+    mutable std::mutex Mutex;
     std::array<char,32> Events{};
     std::size_t Count=0;
-    void Add(char event) noexcept { if(Count<Events.size()) Events[Count++]=event; }
-    void Reset() noexcept { Count=0;Events.fill(0); }
+    void Add(char event) noexcept {
+        std::lock_guard<std::mutex> lock(Mutex);
+        if(Count<Events.size()) Events[Count++]=event;
+    }
+    void Reset() noexcept {
+        std::lock_guard<std::mutex> lock(Mutex);
+        Count=0;Events.fill(0);
+    }
+    std::size_t Size() const noexcept {
+        std::lock_guard<std::mutex> lock(Mutex);
+        return Count;
+    }
+    bool HasPrefix(std::string_view expected) const noexcept {
+        std::lock_guard<std::mutex> lock(Mutex);
+        if(Count<expected.size()) return false;
+        for(std::size_t i=0;i<expected.size();++i)
+            if(Events[i]!=expected[i]) return false;
+        return true;
+    }
 };
 template<std::size_t RecordBytes,std::size_t Records>
 class FixedAtomicStore final : public Persistence::IAtomicRecordStore {
@@ -223,8 +242,9 @@ int main(){
     C::ResponseCapability<1> responses;assert(responses.Initialize(services)==Threads::ThreadStatus::Success);
     assert(responses.FinalizeInitialization()==Threads::ThreadStatus::Success);auto client=responses.Client(owner);
     trace.Reset();auto submitted=client.Execute<PersistentCommand,&PersistentOwner::OnResult>(std::chrono::milliseconds(500),70);assert(submitted.Accepted());
-    PersistentEventually([&]{return responses.ReadyCompletions()==1;});
-    assert(trace.Count>=5&&trace.Events[0]=='L'&&trace.Events[1]=='R'&&trace.Events[2]=='L'&&trace.Events[3]=='L'&&trace.Events[4]=='D');
+    PersistentEventually([&]{return trace.Size()>=5;});
+    assert(trace.HasPrefix("LRLLD"));
+    assert(responses.ReadyCompletions()==1);
     assert(runtimeResults.Present()==0);responses.Service({host.Now.load(),services});
     assert(owner.Callbacks==1&&owner.LastValue==75);assert(runtime.Shutdown()==C::CommandRuntimeStatus::Success);
 }
