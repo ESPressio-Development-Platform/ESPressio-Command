@@ -29,6 +29,10 @@ template<class T> constexpr bool ValidateCommandType() noexcept {
     static_assert(IsExecutionAdmissionPolicy<typename T::ExecutionAdmissionPolicy>::value,"Invalid Command ExecutionAdmissionPolicy");
     static_assert(ValidateCommandCapacities<T>());
     static_assert(std::is_nothrow_destructible_v<T>,"Command request destruction must not throw");
+    if constexpr(T::IsTransmissibleCommand && std::is_same_v<typename T::ResponseType,NoCommandResponse>){
+        using C=CompletionRetentionTraits<typename T::CompletionRetentionPolicy>;
+        static_assert(!C::ResultRetention::Persistent,"NoCommandResponse cannot declare PersistentResults");
+    }
     return true;
 }
 }
@@ -42,6 +46,7 @@ template<class T> class CommandTypeRuntime final {
     using ResponseHandle=typename ResponsePool::Handle;
     using LedgerStorage=Detail::CommandLedgerStorage<T>;
     using LedgerReservation=typename LedgerStorage::Reservation;
+    static constexpr bool PersistentResponseResults=LedgerStorage::UsesPersistentResults;
     struct WorkItem final {
         CommandRequestLease<T> Request{};
         ResponseHandle ResponseReservation{};
@@ -49,10 +54,8 @@ template<class T> class CommandTypeRuntime final {
         WorkItem() noexcept=default;
         WorkItem(CommandRequestLease<T>&& request,ResponseHandle response,LedgerReservation&& ledger={}) noexcept
             :Request(std::move(request)),ResponseReservation(response),Ledger(std::move(ledger)){}
-        WorkItem(const WorkItem&)=delete;
-        WorkItem& operator=(const WorkItem&)=delete;
-        WorkItem(WorkItem&&)=default;
-        WorkItem& operator=(WorkItem&&)=default;
+        WorkItem(const WorkItem&)=delete;WorkItem& operator=(const WorkItem&)=delete;
+        WorkItem(WorkItem&&)=default;WorkItem& operator=(WorkItem&&)=default;
     };
     static_assert(std::is_nothrow_move_constructible_v<WorkItem> && std::is_nothrow_destructible_v<WorkItem>);
     enum class Phase:std::uint8_t{Uninitialized,Prepared,Running,Stopping};
@@ -73,7 +76,24 @@ template<class T> class CommandTypeRuntime final {
     const std::atomic<bool>* _familyRunning=nullptr;
     CommandResponseRouterBinding _responseRouter{};
 
-    CommandTypeRuntime() noexcept=default;
+    CommandTypeRuntime() noexcept {
+        if constexpr(PersistentResponseResults){
+            _responses.BindPersistentRetention(
+                this,
+                [](void* owner,const CommandExecutionKey& key) noexcept {
+                    return static_cast<CommandTypeRuntime*>(owner)->_ledger.ReservePersistentResult(key);
+                },
+                [](void* owner,const CommandExecutionKey& key) noexcept {
+                    static_cast<CommandTypeRuntime*>(owner)->_ledger.AbandonPersistentResult(key);
+                },
+                [](void* owner,const CommandExecutionKey& key,const System::DeviceRuntimeIdentity& executor,const Response& response) noexcept {
+                    return static_cast<CommandTypeRuntime*>(owner)->_ledger.PersistPersistentResult(key,executor,response);
+                },
+                [](void* owner,const CommandExecutionKey& key) noexcept {
+                    return static_cast<CommandTypeRuntime*>(owner)->_ledger.RetirePersistentResult(key);
+                });
+        }
+    }
     static Timing::QualifiedTime CaptureSystemTime();
     static CommandSubmissionStatus MapLedgerStatus(CommandRemoteAdmissionStatus) noexcept;
     void Wake() noexcept;
@@ -89,25 +109,16 @@ template<class T> class CommandTypeRuntime final {
     template<class> friend struct CommandDescriptorProvider;
 public:
     static CommandTypeRuntime& Get() noexcept;
-    CommandTypeRuntime(const CommandTypeRuntime&)=delete;
-    CommandTypeRuntime& operator=(const CommandTypeRuntime&)=delete;
+    CommandTypeRuntime(const CommandTypeRuntime&)=delete;CommandTypeRuntime& operator=(const CommandTypeRuntime&)=delete;
     template<class TOwner,class TMethod> CommandRuntimeStatus BindHandler(TOwner&,TMethod) noexcept;
-    CommandRuntimeStatus Initialize(Task::TaskExecutionConfiguration,Timing::QualifiedTime(*)()=nullptr,
-                                    const std::atomic<bool>* familyRunning=nullptr);
-    bool ValidateStart() noexcept;
-    void StartValidated() noexcept;
-    void CloseAdmissions() noexcept;
-    CommandRuntimeStatus Shutdown() noexcept;
-    CommandRuntimeStatus RollbackInitialization() noexcept;
+    CommandRuntimeStatus Initialize(Task::TaskExecutionConfiguration,Timing::QualifiedTime(*)()=nullptr,const std::atomic<bool>* familyRunning=nullptr);
+    bool ValidateStart() noexcept;void StartValidated() noexcept;void CloseAdmissions() noexcept;
+    CommandRuntimeStatus Shutdown() noexcept;CommandRuntimeStatus RollbackInitialization() noexcept;
     template<bool Blocking,class... Args> CommandSubmissionResult SubmitLocal(Args&&...);
-    template<bool Blocking,class... Args>
-    CommandSubmissionResult SubmitLocalResponse(const Detail::CommandRequesterRoute&,Args&&...);
+    template<bool Blocking,class... Args> CommandSubmissionResult SubmitLocalResponse(const Detail::CommandRequesterRoute&,Args&&...);
     static constexpr std::size_t ExecutionLanes=LaneCount;
-    std::size_t LiveRequests() const noexcept;
-    std::size_t PendingRequests() const noexcept;
-    std::uint32_t CommandIdHighWater() noexcept;
-    const CommandHandlerBinding<T>& Handler() const noexcept;
-    ResponsePool& Responses() noexcept;
+    std::size_t LiveRequests() const noexcept;std::size_t PendingRequests() const noexcept;std::uint32_t CommandIdHighWater() noexcept;
+    const CommandHandlerBinding<T>& Handler() const noexcept;ResponsePool& Responses() noexcept;
 };
 }
 #include "detail/ESPressio_CommandTypeRuntime_Impl.hpp"
