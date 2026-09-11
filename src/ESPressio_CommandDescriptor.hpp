@@ -43,6 +43,17 @@ struct CommandTypeDescriptor final {
     void (*CloseAdmissions)() noexcept = nullptr;
     CommandRuntimeStatus (*Shutdown)() noexcept = nullptr;
     CommandRuntimeStatus (*RollbackInitialization)() noexcept = nullptr;
+    CommandRemoteAdmissionResult (*AdmitRemoteRequest)(
+        CommandPayloadFormat,
+        const CommandRequestWireHeader&,
+        const std::uint8_t*,
+        std::size_t,
+        CommandRemoteResponseDestination) noexcept = nullptr;
+    CommandRemoteAdmissionResult (*AdmitRemoteResponse)(
+        CommandPayloadFormat,
+        const CommandResponseWireHeader&,
+        const std::uint8_t*,
+        std::size_t) noexcept = nullptr;
     const Serializable::StaticSchemaDescriptor* RequestSchema = nullptr;
     const Serializable::StaticSchemaDescriptor* ResponseSchema = nullptr;
     const Primitive::PrimitivePolicyDescriptor* RequestDeliveryPolicy = nullptr;
@@ -50,6 +61,8 @@ struct CommandTypeDescriptor final {
     CommandPolicyDescriptor Policies{};
     std::array<std::size_t, 3> MaximumRequestWireBytes{};
     std::array<std::size_t, 3> MaximumResponseWireBytes{};
+    std::size_t ProtectedIngressRecords = 0;
+    std::array<std::size_t, 3> ProtectedIngressBytes{};
     CommandTypeResourceProfile Resources{};
 };
 
@@ -107,6 +120,22 @@ template<class T> struct CommandDescriptorProvider final {
                     MaximumCompleteRequestWireBytes<T, Serializable::DirectBinary>,
                     MaximumCompleteRequestWireBytes<T, Serializable::CBOR>,
                     MaximumCompleteRequestWireBytes<T, Serializable::JSON>};
+                value.AdmitRemoteRequest=[](
+                    CommandPayloadFormat format,
+                    const CommandRequestWireHeader& header,
+                    const std::uint8_t* payload,
+                    std::size_t size,
+                    CommandRemoteResponseDestination destination) noexcept {
+                    switch(format){
+                        case CommandPayloadFormat::DirectBinary:
+                            return CommandTypeRuntime<T>::Get().template TryAdmitRemoteRequest<Serializable::DirectBinary>(header,payload,size,destination);
+                        case CommandPayloadFormat::CBOR:
+                            return CommandTypeRuntime<T>::Get().template TryAdmitRemoteRequest<Serializable::CBOR>(header,payload,size,destination);
+                        case CommandPayloadFormat::JSON:
+                            return CommandTypeRuntime<T>::Get().template TryAdmitRemoteRequest<Serializable::JSON>(header,payload,size,destination);
+                    }
+                    return CommandRemoteAdmissionResult{CommandRemoteAdmissionStatus::Invalid};
+                };
 
                 if constexpr (!std::is_same_v<typename T::ResponseType, NoCommandResponse>) {
                     static const auto responsePolicy =
@@ -117,6 +146,29 @@ template<class T> struct CommandDescriptorProvider final {
                         MaximumCompleteResponseWireBytes<T, Serializable::DirectBinary>,
                         MaximumCompleteResponseWireBytes<T, Serializable::CBOR>,
                         MaximumCompleteResponseWireBytes<T, Serializable::JSON>};
+                    value.AdmitRemoteResponse=[](
+                        CommandPayloadFormat format,
+                        const CommandResponseWireHeader& header,
+                        const std::uint8_t* payload,
+                        std::size_t size) noexcept {
+                        switch(format){
+                            case CommandPayloadFormat::DirectBinary:
+                                return CommandTypeRuntime<T>::Get().template TryAdmitRemoteResponse<Serializable::DirectBinary>(header,payload,size);
+                            case CommandPayloadFormat::CBOR:
+                                return CommandTypeRuntime<T>::Get().template TryAdmitRemoteResponse<Serializable::CBOR>(header,payload,size);
+                            case CommandPayloadFormat::JSON:
+                                return CommandTypeRuntime<T>::Get().template TryAdmitRemoteResponse<Serializable::JSON>(header,payload,size);
+                        }
+                        return CommandRemoteAdmissionResult{CommandRemoteAdmissionStatus::Invalid};
+                    };
+                }
+                if constexpr(ExecutionAdmissionTraits<typename T::ExecutionAdmissionPolicy>::Protected){
+                    constexpr auto lanes=ExecutionAdmissionTraits<typename T::ExecutionAdmissionPolicy>::LaneCount;
+                    value.ProtectedIngressRecords=lanes;
+                    for(std::size_t i=0;i<value.MaximumRequestWireBytes.size();++i){
+                        if(value.MaximumRequestWireBytes[i]>SIZE_MAX/lanes) std::terminate();
+                        value.ProtectedIngressBytes[i]=value.MaximumRequestWireBytes[i]*lanes;
+                    }
                 }
             }
 

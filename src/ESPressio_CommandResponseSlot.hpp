@@ -18,10 +18,12 @@ template<class TResponse,std::size_t N> class CommandResponseSlotPool final {
 public:
     struct Handle final { std::uint16_t Index=UINT16_MAX; constexpr explicit operator bool() const noexcept { return Index!=UINT16_MAX; } };
 private:
+    enum class ReservationRole : std::uint8_t { None,ExecutorResponse,RemoteRequester,RetainedReplay };
     struct Slot final {
         CommandResponseSlotPool* Owner=nullptr;
         std::uint16_t Index=UINT16_MAX;
         DestinationResponseSlotState State=DestinationResponseSlotState::Free;
+        ReservationRole Role=ReservationRole::None;
         CommandExecutionKey Key{};
         Detail::CommandResponseDestination Destination{};
         System::DeviceRuntimeIdentity Executor{};
@@ -52,8 +54,8 @@ private:
         static_cast<CommandResponseSlotPool*>(context)->Release(Handle{index});
     }
     Handle TryReserveInternal(const CommandExecutionKey& key,Detail::CommandResponseDestination destination,
-                              bool reserveRetention,bool retireRetention) noexcept {
-        if(!key.IsValid() || !destination) return {};
+                              ReservationRole role,bool reserveRetention,bool retireRetention) noexcept {
+        if(!key.IsValid() || !destination || role==ReservationRole::None) return {};
         std::unique_lock<System::Synchronization::Mutex> lock(_mutex,std::try_to_lock);
         if(!lock.owns_lock()) return {};
         for(std::size_t i=0;i<N;++i){
@@ -61,6 +63,7 @@ private:
             if(slot.State!=DestinationResponseSlotState::Free) continue;
             if(reserveRetention && (!_reserveRetention || !_reserveRetention(_retentionOwner,key))) return {};
             slot.State=DestinationResponseSlotState::ReservedForRequest;
+            slot.Role=role;
             slot.Key=key;
             slot.Destination=destination;
             slot.Executor={};
@@ -100,22 +103,23 @@ public:
     }
     /// Executor-side response reservation. Persistent Types reserve result-retention budget here.
     Handle TryReserve(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
-        return TryReserveInternal(key,destination,_reserveRetention!=nullptr,false);
+        return TryReserveInternal(key,destination,ReservationRole::ExecutorResponse,_reserveRetention!=nullptr,false);
     }
     /// Requester-side reservation used by ExecuteTo before outbound transport admission.
     /// No executor-side result retention is reserved or retired on this node.
     Handle TryReserveRemoteRequester(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
-        return TryReserveInternal(key,destination,false,false);
+        return TryReserveInternal(key,destination,ReservationRole::RemoteRequester,false,false);
     }
     /// Duplicate/recovery replay of an already-retained persistent result. Successful destination admission retires it.
     Handle TryReserveRetainedReplay(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
-        return TryReserveInternal(key,destination,false,true);
+        return TryReserveInternal(key,destination,ReservationRole::RetainedReplay,false,true);
     }
-    Handle FindReserved(const CommandExecutionKey& key) const noexcept {
+    Handle FindRemoteRequesterReserved(const CommandExecutionKey& key) const noexcept {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
         for(std::size_t i=0;i<N;++i){
             const auto& slot=_slots[i];
-            if(slot.State==DestinationResponseSlotState::ReservedForRequest && slot.Key==key)
+            if(slot.State==DestinationResponseSlotState::ReservedForRequest &&
+               slot.Role==ReservationRole::RemoteRequester && slot.Key==key)
                 return {static_cast<std::uint16_t>(i)};
         }
         return {};
@@ -130,6 +134,7 @@ public:
         if(slot.State!=DestinationResponseSlotState::ReservedForRequest) return false;
         if((disposition==CommandResponseDisposition::Succeeded)!=payloadConstructed) return false;
         if(slot.RetentionReserved){
+            if(slot.Role!=ReservationRole::ExecutorResponse) return false;
             if(disposition==CommandResponseDisposition::Succeeded){
                 if(!_persistRetention || !payloadConstructed) return false;
                 const auto* payload=std::launder(reinterpret_cast<const TResponse*>(slot.Storage));

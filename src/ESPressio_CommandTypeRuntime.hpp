@@ -19,6 +19,7 @@
 #include "ESPressio_CommandRequestPool.hpp"
 #include "ESPressio_CommandResponseRouter.hpp"
 #include "ESPressio_CommandResponseSlot.hpp"
+#include "ESPressio_CommandWireV1.hpp"
 
 namespace ESPressio::Command {
 namespace Detail {
@@ -116,9 +117,21 @@ public:
     CommandRuntimeStatus Shutdown() noexcept;CommandRuntimeStatus RollbackInitialization() noexcept;
     template<bool Blocking,class... Args> CommandSubmissionResult SubmitLocal(Args&&...);
     template<bool Blocking,class... Args> CommandSubmissionResult SubmitLocalResponse(const Detail::CommandRequesterRoute&,Args&&...);
+    template<class Format>
+    CommandRemoteAdmissionResult TryAdmitRemoteRequest(
+        const CommandRequestWireHeader&,
+        const std::uint8_t*,
+        std::size_t,
+        CommandRemoteResponseDestination={}) noexcept;
+    template<class Format>
+    CommandRemoteAdmissionResult TryAdmitRemoteResponse(
+        const CommandResponseWireHeader&,
+        const std::uint8_t*,
+        std::size_t) noexcept;
     static constexpr std::size_t ExecutionLanes=LaneCount;
     std::size_t LiveRequests() const noexcept;std::size_t PendingRequests() const noexcept;std::uint32_t CommandIdHighWater() noexcept;
     const CommandHandlerBinding<T>& Handler() const noexcept;ResponsePool& Responses() noexcept;
 };
 }
 #include "detail/ESPressio_CommandTypeRuntime_Impl.hpp"
+#include "detail/ESPressio_CommandTypeRuntime_Remote.hpp"

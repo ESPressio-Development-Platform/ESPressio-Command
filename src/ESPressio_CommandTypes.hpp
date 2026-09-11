@@ -72,7 +72,7 @@ enum class CommandRuntimeStatus : std::uint8_t {
 enum class CommandRemoteAdmissionStatus : std::uint8_t {
     Admitted, InProgress, DuplicateTerminal, StaleOriginRuntime, ExecutionHistoryExpired,
     LedgerCapacityUnavailable, TemporarilyUnavailable, SchemaOrDecodeFailure,
-    UnknownType, Invalid, UnsupportedProtocol
+    UnknownType, NoActiveRequester, Invalid, UnsupportedProtocol
 };
 struct CommandRemoteAdmissionResult final {
     CommandRemoteAdmissionStatus Status=CommandRemoteAdmissionStatus::Invalid;
