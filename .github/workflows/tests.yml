@@ -1,83 +1,36 @@
-name: Tests
+name: Command architecture contracts
 on: [push, pull_request]
-jobs:
-  host-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify core Command remains Event-free
-        run: |
-          if grep -R -nE '#[[:space:]]*include[[:space:]]*[<\"]ESPressio_(Event|CommandEvents|CommandRegistryEventBridge)' src/ESPressio_Command.hpp src/ESPressio_Commands.hpp; then exit 1; fi
-      - name: Verify core Command remains JSON-adapter-free
-        run: |
-          if grep -R -nE '#[[:space:]]*include[[:space:]]*[<\"](ArduinoJson|ESPressio_JsonCommandInterpreter)' src/ESPressio_Command.hpp src/ESPressio_Commands.hpp; then exit 1; fi
-      - run: cmake -S tests -B build
-      - run: cmake --build build --parallel
-      - run: ctest --test-dir build --output-on-failure
 
-  esp32-json-integration:
+jobs:
+  host-contracts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: {path: project/ESPressio-Command}
       - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-System, ref: primitives_redesign, path: project/dependencies/ESPressio-System}
+        with: {repository: ESPressio-Development-Platform/ESPressio-System, ref: primitives_redesign, path: deps/ESPressio-System}
       - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Primitive, ref: primitives_redesign, path: project/dependencies/ESPressio-Primitive}
+        with: {repository: ESPressio-Development-Platform/ESPressio-Primitive, ref: primitives_redesign, path: deps/ESPressio-Primitive}
       - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Task, ref: primitives_redesign, path: project/dependencies/ESPressio-Task}
+        with: {repository: ESPressio-Development-Platform/ESPressio-Task, ref: primitives_redesign, path: deps/ESPressio-Task}
       - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Observable, ref: primitives_redesign, path: project/dependencies/ESPressio-Observable}
+        with: {repository: ESPressio-Development-Platform/ESPressio-Threads, ref: primitives_redesign, path: deps/ESPressio-Threads}
       - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Serializable, ref: primitives_redesign, path: project/dependencies/ESPressio-Serializable}
+        with: {repository: ESPressio-Development-Platform/ESPressio-Timing, ref: primitives_redesign, path: deps/ESPressio-Timing}
       - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Units, ref: primitives_redesign, path: project/dependencies/ESPressio-Units}
-      - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Timing, ref: primitives_redesign, path: project/dependencies/ESPressio-Timing}
-      - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Threads, ref: primitives_redesign, path: project/dependencies/ESPressio-Threads}
-      - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Event, ref: primitives_redesign, path: project/dependencies/ESPressio-Event}
-      - uses: actions/setup-python@v5
-        with: {python-version: '3.x'}
-      - run: pip install platformio
-      - name: Build JSON integration
+        with: {repository: ESPressio-Development-Platform/ESPressio-Serializable, ref: primitives_redesign, path: deps/ESPressio-Serializable}
+      - name: Reject predecessor core coupling
         shell: bash
         run: |
-          mkdir -p project/compile-json/src
-          cat > project/compile-json/platformio.ini <<'EOF'
-          [env:esp32]
-          platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.311/platform-espressif32.zip
-          board = esp32dev
-          framework = arduino
-          build_flags = -std=gnu++17 -fno-rtti
-          build_unflags = -std=gnu++11 -frtti
-          lib_ldf_mode = deep+
-          lib_deps =
-              bblanchon/ArduinoJson@^7.4.3
-              ../dependencies/ESPressio-System
-              ../dependencies/ESPressio-Primitive
-              ../dependencies/ESPressio-Task
-              ../dependencies/ESPressio-Observable
-              ../dependencies/ESPressio-Serializable
-              ../dependencies/ESPressio-Units
-              ../dependencies/ESPressio-Timing
-              ../dependencies/ESPressio-Threads
-              ../dependencies/ESPressio-Event
-              ../ESPressio-Command
-          EOF
-          cat > project/compile-json/src/main.cpp <<'EOF'
-          #include <Arduino.h>
-          #include <ESPressio_Command.hpp>
-          #include <ESPressio_JsonCommandInterpreter.hpp>
-          ESPressio::Command::CommandRegistry registry;
-          ESPressio::Command::JsonCommandInterpreter json(registry);
-          void setup(){ auto& c=registry.Command("gpio").Command("write"); c.Parameter<int>("pin"); c.OnExecute([](const ESPressio::Command::CommandContext&){return ESPressio::Command::CommandResult::Ok();}); }
-          void loop(){}
-          EOF
-          pio run -d project/compile-json
+          if grep -R -nE '#[[:space:]]*include[[:space:]]*[<\"]ESPressio_(Event|CommandEvents|CommandRegistryEventBridge|Observable)' src/ESPressio_Command.hpp src/ESPressio_Commands.hpp; then exit 1; fi
+          if grep -R -nE '#[[:space:]]*include[[:space:]]*[<\"](ArduinoJson|ESPressio_JsonCommandInterpreter)' src/ESPressio_Command.hpp src/ESPressio_Commands.hpp; then exit 1; fi
+      - name: Configure host contracts
+        run: cmake -S tests -B build -DESPRESSIO_DEPENDENCIES="$GITHUB_WORKSPACE/deps"
+      - name: Build host contracts
+        run: cmake --build build --parallel
+      - name: Run host contracts
+        run: ctest --test-dir build --output-on-failure
 
-  esp32-event-integration:
+  esp32-typed-surface:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,25 +42,21 @@ jobs:
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Task, ref: primitives_redesign, path: project/dependencies/ESPressio-Task}
       - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Observable, ref: primitives_redesign, path: project/dependencies/ESPressio-Observable}
+        with: {repository: ESPressio-Development-Platform/ESPressio-Threads, ref: primitives_redesign, path: project/dependencies/ESPressio-Threads}
+      - uses: actions/checkout@v4
+        with: {repository: ESPressio-Development-Platform/ESPressio-Timing, ref: primitives_redesign, path: project/dependencies/ESPressio-Timing}
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Serializable, ref: primitives_redesign, path: project/dependencies/ESPressio-Serializable}
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Units, ref: primitives_redesign, path: project/dependencies/ESPressio-Units}
-      - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Timing, ref: primitives_redesign, path: project/dependencies/ESPressio-Timing}
-      - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Threads, ref: primitives_redesign, path: project/dependencies/ESPressio-Threads}
-      - uses: actions/checkout@v4
-        with: {repository: ESPressio-Development-Platform/ESPressio-Event, ref: primitives_redesign, path: project/dependencies/ESPressio-Event}
       - uses: actions/setup-python@v5
         with: {python-version: '3.x'}
       - run: pip install platformio
-      - name: Build Event integration
+      - name: Compile typed public surface without RTTI
         shell: bash
         run: |
           mkdir -p project/compile/src
-          cat > project/compile/platformio.ini <<'EOF'
+          cat > project/compile/platformio.ini <<'INI'
           [env:esp32]
           platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.311/platform-espressif32.zip
           board = esp32dev
@@ -119,20 +68,24 @@ jobs:
               ../dependencies/ESPressio-System
               ../dependencies/ESPressio-Primitive
               ../dependencies/ESPressio-Task
-              ../dependencies/ESPressio-Observable
-              ../dependencies/ESPressio-Serializable
-              ../dependencies/ESPressio-Units
               ../dependencies/ESPressio-Timing
+              ../dependencies/ESPressio-Units
               ../dependencies/ESPressio-Threads
-              ../dependencies/ESPressio-Event
+              ../dependencies/ESPressio-Serializable
               ../ESPressio-Command
-          EOF
-          cat > project/compile/src/main.cpp <<'EOF'
+          INI
+          cat > project/compile/src/main.cpp <<'CPP'
           #include <Arduino.h>
-          #include <ESPressio_Command.hpp>
-          #include <ESPressio_CommandEvents.hpp>
-          #include <ESPressio_CommandRegistryEventBridge.hpp>
-          void setup(){ESPressio::Event::CommandRegistryEventBridge::GetInstance().Initialize();}
-          void loop(){}
-          EOF
+          #include <ESPressio_Commands.hpp>
+          struct ProbeCommand final : ESPressio::Command::Command<ProbeCommand> {
+              static constexpr ESPressio::Command::CommandTypeId TypeId{1};
+              static constexpr const char* CanonicalName = "Probe.Command";
+              static constexpr std::size_t MaximumLiveInstances = 2;
+              static constexpr std::size_t MaximumPendingExecutions = 1;
+              using ExecutionAdmissionPolicy = ESPressio::Command::RequiredExecution;
+          };
+          static_assert(ESPressio::Command::Detail::ValidateCommandType<ProbeCommand>());
+          void setup() {}
+          void loop() {}
+          CPP
           pio run -d project/compile
