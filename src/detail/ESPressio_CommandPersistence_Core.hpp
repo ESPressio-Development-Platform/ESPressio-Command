@@ -62,8 +62,14 @@ public:
         Reservation(Reservation&& other) noexcept
             :_ledger(std::exchange(other._ledger,nullptr)),_origin(other._origin),_generation(other._generation),_key(other._key),_started(other._started){}
         Reservation& operator=(Reservation&& other) noexcept {
-            if(this==&other) return *this;Reset();_ledger=std::exchange(other._ledger,nullptr);_origin=other._origin;
-            _generation=other._generation;_key=other._key;_started=other._started;return *this;
+            if(this==&other) return *this;
+            Reset();
+            _ledger=std::exchange(other._ledger,nullptr);
+            _origin=other._origin;
+            _generation=other._generation;
+            _key=other._key;
+            _started=other._started;
+            return *this;
         }
         ~Reservation(){Reset();}
         explicit operator bool() const noexcept { return _ledger && _origin!=UINT16_MAX && _generation && _key.IsValid(); }
