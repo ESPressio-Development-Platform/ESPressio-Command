@@ -1,7 +1,13 @@
 #pragma once
-
+#include "ESPressio_CommandTypes.hpp"
+#include "ESPressio_CommandPolicies.hpp"
 #include "ESPressio_Command.hpp"
-#include "ESPressio_CommandEnvelope.hpp"
-#include "ESPressio_CommandFactory.hpp"
-#include "ESPressio_CommandLine.hpp"
-#include "ESPressio_TextCommandInterpreter.hpp"
+#include "ESPressio_SerializableCommand.hpp"
+#include "ESPressio_TransmissibleCommand.hpp"
+#include "ESPressio_CommandRequestPool.hpp"
+#include "ESPressio_CommandPendingQueue.hpp"
+#include "ESPressio_CommandHandlerBinding.hpp"
+#include "ESPressio_CommandResponseSlot.hpp"
+#include "ESPressio_CommandTypeRuntime.hpp"
+#include "ESPressio_CommandWireV1.hpp"
+#include "ESPressio_CommandDescriptor.hpp"
