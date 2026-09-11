@@ -77,12 +77,13 @@ template<class T> class CommandTypeRuntime final {
     void OnLaneReleased(Task::IdleWorkerTask<WorkItem>&) noexcept;
     void ExecuteLane(WorkItem&) noexcept;
     template<bool Blocking,class... Args> CommandSubmissionResult SubmitNoResponse(Args&&...);
+    CommandRuntimeStatus BindResponseRouter(CommandResponseRouterBinding) noexcept;
+    template<class> friend struct CommandDescriptorProvider;
 public:
     static CommandTypeRuntime& Get() noexcept;
     CommandTypeRuntime(const CommandTypeRuntime&)=delete;
     CommandTypeRuntime& operator=(const CommandTypeRuntime&)=delete;
     template<class TOwner,class TMethod> CommandRuntimeStatus BindHandler(TOwner&,TMethod) noexcept;
-    CommandRuntimeStatus BindResponseRouter(CommandResponseRouterBinding) noexcept;
     CommandRuntimeStatus Initialize(Task::TaskExecutionConfiguration,Timing::QualifiedTime(*)()=nullptr,
                                     const std::atomic<bool>* familyRunning=nullptr);
     bool ValidateStart() noexcept;

@@ -15,3 +15,4 @@
 #include "ESPressio_CommandClient.hpp"
 #include "ESPressio_CommandWireV1.hpp"
 #include "ESPressio_CommandDescriptor.hpp"
+#include "ESPressio_CommandRuntime.hpp"

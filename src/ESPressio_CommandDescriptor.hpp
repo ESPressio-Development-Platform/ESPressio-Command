@@ -33,6 +33,8 @@ struct CommandTypeDescriptor final {
     std::size_t MaximumPendingExecutions = 0;
     std::size_t MaximumPendingResponses = 0;
     std::size_t ExecutionLaneCount = 0;
+    bool (*HasHandler)() noexcept = nullptr;
+    CommandRuntimeStatus (*BindResponseRouter)(CommandResponseRouterBinding) noexcept = nullptr;
     CommandRuntimeStatus (*Initialize)(Task::TaskExecutionConfiguration, const std::atomic<bool>*) = nullptr;
     bool (*ValidateStart)() noexcept = nullptr;
     void (*StartValidated)() noexcept = nullptr;
@@ -69,6 +71,10 @@ template<class T> struct CommandDescriptorProvider final {
             value.MaximumPendingExecutions = T::MaximumPendingExecutions;
             value.MaximumPendingResponses = Detail::ResponseCapacity<T>::value;
             value.ExecutionLaneCount = Detail::ExecutionLaneCount<T>();
+            value.HasHandler=[]() noexcept { return CommandTypeRuntime<T>::Get().Handler().IsBound(); };
+            value.BindResponseRouter=[](CommandResponseRouterBinding binding) noexcept {
+                return CommandTypeRuntime<T>::Get().BindResponseRouter(binding);
+            };
             value.Initialize = [](Task::TaskExecutionConfiguration config, const std::atomic<bool>* running) {
                 return CommandTypeRuntime<T>::Get().Initialize(config, nullptr, running);
             };

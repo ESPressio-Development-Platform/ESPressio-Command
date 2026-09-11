@@ -54,8 +54,6 @@ struct Owner final {
     }
 };
 
-static Timing::QualifiedTime CaptureTime(){ return {42,Timing::TimeReliability::Synchronized}; }
-
 template<class Predicate> void Eventually(Predicate&& predicate){
     const auto limit=std::chrono::steady_clock::now()+std::chrono::seconds(3);
     while(!predicate()){
@@ -81,16 +79,24 @@ int main(){
     routerConfiguration.OverflowPolicy=Task::TaskQueueOverflowPolicy::Reject;
     routerConfiguration.QueueMemoryPolicy=Task::TaskMemoryPolicy::Internal;
     C::CommandResponseRouter<2> router(routerConfiguration);
-    assert(router.Initialize()==Task::TaskExecutionStatus::Success);
-    assert(router.Start()==Task::TaskExecutionStatus::Success);
+
+    Primitive::TypeDirectory<1> directory;
+    assert(directory.Register<Request>()==Primitive::TypeDirectoryRegistrationStatus::Success);
+    assert(directory.Initialize()==Primitive::TypeDirectoryInitializationStatus::Success);
 
     Owner owner;
-    auto& runtime=C::CommandTypeRuntime<Request>::Get();
-    assert(runtime.BindHandler(owner,&Owner::Handle)==C::CommandRuntimeStatus::Success);
-    assert(runtime.BindResponseRouter(router.Binding())==C::CommandRuntimeStatus::Success);
-    Task::TaskExecutionConfiguration execution{};execution.Name="commandLane";execution.StackSize=4096;
-    assert(runtime.Initialize(execution,&CaptureTime)==C::CommandRuntimeStatus::Success);
-    assert(runtime.ValidateStart());runtime.StartValidated();
+    C::RuntimeConfiguration runtimeConfiguration{};
+    runtimeConfiguration.ExecutionLane.Name="commandLane";
+    runtimeConfiguration.ExecutionLane.StackSize=4096;
+    runtimeConfiguration.ResponseRouter=router.Binding();
+    C::Runtime runtime(runtimeConfiguration);
+    assert(runtime.BindHandler<Request>(owner,&Owner::Handle)==C::CommandRuntimeStatus::Success);
+    assert(runtime.Initialize(directory.View())==C::CommandRuntimeStatus::Success);
+    assert(runtime.BindHandler<Request>(owner,&Owner::Handle)==C::CommandRuntimeStatus::Frozen);
+    assert(runtime.Start()==C::CommandRuntimeStatus::Success);
+    assert(runtime.IsRunning());
+    const auto profile=runtime.GetResourceProfile();
+    assert(profile.TypeCount==1 && profile.DestinationResponseSlots==2 && profile.ResponseRouterCapacity==2);
 
     CapabilityHost host;
     Threads::ThreadHostServices services{};
@@ -106,11 +112,10 @@ int main(){
     assert(client.IsLive(first.Request) && !client.IsReady(first.Request));
     auto saturated=client.TryExecute<Request,&Owner::OnResult>(std::chrono::milliseconds(500),20);
     assert(!saturated.Accepted() && saturated.Status==C::CommandSubmissionStatus::ResponseCapacityUnavailable);
-    assert(runtime.CommandIdHighWater()==1);
+    assert(C::CommandTypeRuntime<Request>::Get().CommandIdHighWater()==1);
     Eventually([&]{return responses.ReadyCompletions()==1;});
     assert(client.IsLive(first.Request) && client.IsReady(first.Request));
     assert(owner.Callbacks==0);
-    // Capacity and route are released before OnResult. With N=1 the callback itself must be able to re-enter.
     owner.ReenterOnResult=true;
     responses.Service({host.Now.load(),services});
     assert(owner.Callbacks==1 && owner.LastKind==C::CommandCallerCompletionKind::Response && owner.LastValue==11);
@@ -121,7 +126,6 @@ int main(){
     assert(owner.Callbacks==2 && owner.LastValue==31);
     assert(responses.LiveExpectations()==0 && responses.ReadyCompletions()==0);
 
-    // Cancellation abandons only the local expectation. Destination execution still completes and its late response is dropped.
     platform.Pause();
     auto cancelled=client.Execute<Request,&Owner::OnResult>(std::chrono::milliseconds(500),40);
     assert(cancelled.Accepted());
@@ -132,7 +136,6 @@ int main(){
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     assert(owner.Callbacks==2 && responses.LiveExpectations()==0);
 
-    // Finite requester-local monotonic deadline wins before a late local response.
     platform.Pause();
     auto timed=client.Execute<Request,&Owner::OnResult>(std::chrono::milliseconds(1),50);
     assert(timed.Accepted());
@@ -150,5 +153,4 @@ int main(){
     responses.Quiesce({host.Now.load(),services});
     assert(responses.LiveExpectations()==0 && responses.ReadyCompletions()==0);
     assert(runtime.Shutdown()==C::CommandRuntimeStatus::Success);
-    assert(router.Shutdown()==Task::TaskExecutionStatus::Success);
 }
