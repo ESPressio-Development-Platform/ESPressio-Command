@@ -22,13 +22,18 @@ class Runtime final {
     std::atomic<bool> _running{false};
     bool _initialized=false,_stopping=false,_routerInitialized=false,_routerStarted=false;
     std::size_t _preparedTypes=0,_responseSlots=0;
+    template<class T>
+    CommandRuntimeStatus BindPersistenceImpl(CommandPersistenceBinding binding) noexcept {
+        static_assert(T::IsTransmissibleCommand && T::ValidateTier(),"Persistence binding applies only to Transmissible Commands");
+        if(_initialized||_stopping||_running.load(std::memory_order_acquire)) return CommandRuntimeStatus::Frozen;
+        const auto common=T::GetPrimitiveTypeDescriptor();
+        const auto* descriptor=GetCommandTypeDescriptor(common);
+        return descriptor && descriptor->BindPersistence ? descriptor->BindPersistence(binding) : CommandRuntimeStatus::InvalidDirectory;
+    }
 public:
     explicit Runtime(RuntimeConfiguration configuration={}) noexcept:_configuration(configuration){}
-    Runtime(const Runtime&)=delete;
-    Runtime& operator=(const Runtime&)=delete;
-    ~Runtime(){
-        if(Shutdown()!=CommandRuntimeStatus::Success) std::terminate();
-    }
+    Runtime(const Runtime&)=delete;Runtime& operator=(const Runtime&)=delete;
+    ~Runtime(){ if(Shutdown()!=CommandRuntimeStatus::Success) std::terminate(); }
     template<class T,class TOwner,class TMethod>
     CommandRuntimeStatus BindHandler(TOwner& owner,TMethod method) noexcept {
         static_assert(Detail::ValidateCommandType<T>());
@@ -37,12 +42,17 @@ public:
     }
     template<class T>
     CommandRuntimeStatus BindPersistence(Persistence::IAtomicRecordStore& store,const Persistence::AtomicRecordKey& ledgerKey) noexcept {
-        static_assert(T::IsTransmissibleCommand && T::ValidateTier(),"Persistence binding applies only to Transmissible Commands");
-        if(_initialized||_stopping||_running.load(std::memory_order_acquire)) return CommandRuntimeStatus::Frozen;
-        const auto common=T::GetPrimitiveTypeDescriptor();
-        const auto* descriptor=GetCommandTypeDescriptor(common);
-        return descriptor && descriptor->BindPersistence
-            ? descriptor->BindPersistence({&store,ledgerKey}) : CommandRuntimeStatus::InvalidDirectory;
+        return BindPersistenceImpl<T>({&store,ledgerKey});
+    }
+    template<class T>
+    CommandRuntimeStatus BindPersistence(Persistence::IAtomicRecordStore& store,const Persistence::AtomicRecordKey& ledgerKey,
+                                         CommandPayloadFormat resultFormat) noexcept {
+        return BindPersistenceImpl<T>({&store,ledgerKey,&store,resultFormat,true});
+    }
+    template<class T>
+    CommandRuntimeStatus BindPersistence(Persistence::IAtomicRecordStore& ledgerStore,const Persistence::AtomicRecordKey& ledgerKey,
+                                         Persistence::IAtomicRecordStore& resultStore,CommandPayloadFormat resultFormat) noexcept {
+        return BindPersistenceImpl<T>({&ledgerStore,ledgerKey,&resultStore,resultFormat,true});
     }
     CommandRuntimeStatus Initialize(Primitive::TypeDirectoryView directory){
         if(_initialized) return CommandRuntimeStatus::AlreadyInitialized;
@@ -67,108 +77,82 @@ public:
         if(responseSlots&&(!_configuration.ResponseRouter||_configuration.ResponseRouter.Capacity()<responseSlots))
             return CommandRuntimeStatus::InvalidConfiguration;
         for(const auto& common:directory){
-            if(common.Key.Family==CommandFamilyId&&!GetCommandTypeDescriptor(common)->HasHandler())
-                return CommandRuntimeStatus::MissingHandler;
+            if(common.Key.Family==CommandFamilyId&&!GetCommandTypeDescriptor(common)->HasHandler()) return CommandRuntimeStatus::MissingHandler;
         }
         if(responseSlots){
             const auto status=_configuration.ResponseRouter.Initialize();
             if(status!=Task::TaskExecutionStatus::Success) return CommandRuntimeStatus::TaskCreationFailed;
             _routerInitialized=true;
         }
-        _directory=directory;
-        _preparedTypes=0;
-        _responseSlots=responseSlots;
+        _directory=directory;_preparedTypes=0;_responseSlots=responseSlots;
         for(const auto& common:directory){
             if(common.Key.Family!=CommandFamilyId) continue;
             const auto* descriptor=GetCommandTypeDescriptor(common);
             if(descriptor->MaximumPendingResponses){
                 const auto bind=descriptor->BindResponseRouter(_configuration.ResponseRouter);
-                if(bind!=CommandRuntimeStatus::Success){
-                    RollbackPrepared();
-                    return bind;
-                }
+                if(bind!=CommandRuntimeStatus::Success){RollbackPrepared();return bind;}
             }
             const auto status=descriptor->Initialize(_configuration.ExecutionLane,&_running);
-            if(status!=CommandRuntimeStatus::Success){
-                RollbackPrepared();
-                return status;
-            }
+            if(status!=CommandRuntimeStatus::Success){RollbackPrepared();return status;}
             ++_preparedTypes;
         }
-        _initialized=true;
-        return CommandRuntimeStatus::Success;
+        _initialized=true;return CommandRuntimeStatus::Success;
     }
     CommandRuntimeStatus Start() noexcept {
         if(!_initialized) return CommandRuntimeStatus::NotInitialized;
         if(_stopping) return CommandRuntimeStatus::Stopping;
         if(_running.load(std::memory_order_acquire)) return CommandRuntimeStatus::Frozen;
         for(const auto& common:_directory){
-            if(common.Key.Family==CommandFamilyId&&!GetCommandTypeDescriptor(common)->ValidateStart())
-                return CommandRuntimeStatus::InvalidConfiguration;
+            if(common.Key.Family==CommandFamilyId&&!GetCommandTypeDescriptor(common)->ValidateStart()) return CommandRuntimeStatus::InvalidConfiguration;
         }
         if(_routerInitialized){
             const auto status=_configuration.ResponseRouter.Start();
             if(status!=Task::TaskExecutionStatus::Success) return CommandRuntimeStatus::TaskCreationFailed;
             _routerStarted=true;
         }
-        for(const auto& common:_directory){
-            if(common.Key.Family==CommandFamilyId) GetCommandTypeDescriptor(common)->StartValidated();
-        }
-        _running.store(true,std::memory_order_release);
-        return CommandRuntimeStatus::Success;
+        for(const auto& common:_directory) if(common.Key.Family==CommandFamilyId) GetCommandTypeDescriptor(common)->StartValidated();
+        _running.store(true,std::memory_order_release);return CommandRuntimeStatus::Success;
     }
     CommandRuntimeStatus Shutdown() noexcept {
         if(!_initialized){
             if(_routerInitialized){
-                const auto status=_configuration.ResponseRouter.Shutdown();
-                _routerInitialized=false;
-                _routerStarted=false;
+                const auto status=_configuration.ResponseRouter.Shutdown();_routerInitialized=false;_routerStarted=false;
                 if(status!=Task::TaskExecutionStatus::Success) return CommandRuntimeStatus::JoinFailed;
             }
             return CommandRuntimeStatus::Success;
         }
-        _running.store(false,std::memory_order_release);
-        _stopping=true;
+        _running.store(false,std::memory_order_release);_stopping=true;
         std::size_t visited=0;
         for(const auto& common:_directory){
             if(common.Key.Family!=CommandFamilyId) continue;
             if(visited++==_preparedTypes) break;
             GetCommandTypeDescriptor(common)->CloseAdmissions();
         }
-        bool joined=true;
-        visited=0;
+        bool joined=true;visited=0;
         for(const auto& common:_directory){
             if(common.Key.Family!=CommandFamilyId) continue;
             if(visited++==_preparedTypes) break;
             if(GetCommandTypeDescriptor(common)->Shutdown()!=CommandRuntimeStatus::Success) joined=false;
         }
         if(_routerInitialized){
-            const auto status=_configuration.ResponseRouter.Shutdown();
-            if(status!=Task::TaskExecutionStatus::Success) joined=false;
-            _routerInitialized=false;
-            _routerStarted=false;
+            const auto status=_configuration.ResponseRouter.Shutdown();if(status!=Task::TaskExecutionStatus::Success) joined=false;
+            _routerInitialized=false;_routerStarted=false;
         }
         if(!joined) return CommandRuntimeStatus::JoinFailed;
-        _initialized=false;
-        return CommandRuntimeStatus::Success;
+        _initialized=false;return CommandRuntimeStatus::Success;
     }
     CommandRuntimeResourceProfile GetResourceProfile() const noexcept {
-        CommandRuntimeResourceProfile profile{};
-        profile.CoordinatorBytes=sizeof(Runtime);
-        profile.CoordinatorAlignment=alignof(Runtime);
+        CommandRuntimeResourceProfile profile{};profile.CoordinatorBytes=sizeof(Runtime);profile.CoordinatorAlignment=alignof(Runtime);
         profile.ResponseRouterCapacity=_configuration.ResponseRouter?_configuration.ResponseRouter.Capacity():0;
         profile.ResponseRouterQueueBytes=profile.ResponseRouterCapacity*sizeof(Detail::CommandResponseRouteWork);
         profile.StackBytesPerLane=_configuration.ExecutionLane.StackSize;
         for(const auto& common:_directory){
             if(common.Key.Family!=CommandFamilyId) continue;
             const auto* descriptor=GetCommandTypeDescriptor(common);
-            ++profile.TypeCount;
-            profile.TypeResidentBytes+=descriptor->Resources.RuntimeBytes;
-            profile.ExecutionContexts+=descriptor->ExecutionLaneCount;
+            ++profile.TypeCount;profile.TypeResidentBytes+=descriptor->Resources.RuntimeBytes;profile.ExecutionContexts+=descriptor->ExecutionLaneCount;
             profile.DestinationResponseSlots+=descriptor->MaximumPendingResponses;
         }
-        if(_responseSlots) ++profile.ExecutionContexts;
-        return profile;
+        if(_responseSlots) ++profile.ExecutionContexts;return profile;
     }
     bool IsRunning() const noexcept { return _running.load(std::memory_order_acquire); }
     Primitive::TypeDirectoryView Directory() const noexcept { return _directory; }
@@ -181,11 +165,7 @@ private:
             (void)GetCommandTypeDescriptor(common)->RollbackInitialization();
         }
         _preparedTypes=0;
-        if(_routerInitialized){
-            (void)_configuration.ResponseRouter.Shutdown();
-            _routerInitialized=false;
-            _routerStarted=false;
-        }
+        if(_routerInitialized){(void)_configuration.ResponseRouter.Shutdown();_routerInitialized=false;_routerStarted=false;}
     }
 };
 }
