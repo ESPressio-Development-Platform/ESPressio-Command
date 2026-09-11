@@ -34,6 +34,8 @@ struct CommandTypeDescriptor final {
     std::size_t MaximumPendingResponses = 0;
     std::size_t ExecutionLaneCount = 0;
     bool (*HasHandler)() noexcept = nullptr;
+    bool (*HasPersistence)() noexcept = nullptr;
+    CommandRuntimeStatus (*BindPersistence)(CommandPersistenceBinding) noexcept = nullptr;
     CommandRuntimeStatus (*BindResponseRouter)(CommandResponseRouterBinding) noexcept = nullptr;
     CommandRuntimeStatus (*Initialize)(Task::TaskExecutionConfiguration, const std::atomic<bool>*) = nullptr;
     bool (*ValidateStart)() noexcept = nullptr;
@@ -72,6 +74,10 @@ template<class T> struct CommandDescriptorProvider final {
             value.MaximumPendingResponses = Detail::ResponseCapacity<T>::value;
             value.ExecutionLaneCount = Detail::ExecutionLaneCount<T>();
             value.HasHandler=[]() noexcept { return CommandTypeRuntime<T>::Get().Handler().IsBound(); };
+            value.HasPersistence=[]() noexcept { return CommandTypeRuntime<T>::Get().HasPersistence(); };
+            value.BindPersistence=[](CommandPersistenceBinding binding) noexcept {
+                return CommandTypeRuntime<T>::Get().BindPersistence(binding);
+            };
             value.BindResponseRouter=[](CommandResponseRouterBinding binding) noexcept {
                 return CommandTypeRuntime<T>::Get().BindResponseRouter(binding);
             };
@@ -116,12 +122,8 @@ template<class T> struct CommandDescriptorProvider final {
 
             std::size_t requestMaximum = 0;
             std::size_t responseMaximum = 0;
-            for (auto bytes : value.MaximumRequestWireBytes) {
-                if (bytes > requestMaximum) requestMaximum = bytes;
-            }
-            for (auto bytes : value.MaximumResponseWireBytes) {
-                if (bytes > responseMaximum) responseMaximum = bytes;
-            }
+            for (auto bytes : value.MaximumRequestWireBytes) if (bytes > requestMaximum) requestMaximum = bytes;
+            for (auto bytes : value.MaximumResponseWireBytes) if (bytes > responseMaximum) responseMaximum = bytes;
             value.Resources = {
                 sizeof(CommandTypeRuntime<T>),
                 sizeof(CommandRequestPool<T>),
@@ -136,12 +138,8 @@ template<class T> struct CommandDescriptorProvider final {
         }();
 
         std::size_t maximumWireBytes = 0;
-        for (auto bytes : extension.MaximumRequestWireBytes) {
-            if (bytes > maximumWireBytes) maximumWireBytes = bytes;
-        }
-        for (auto bytes : extension.MaximumResponseWireBytes) {
-            if (bytes > maximumWireBytes) maximumWireBytes = bytes;
-        }
+        for (auto bytes : extension.MaximumRequestWireBytes) if (bytes > maximumWireBytes) maximumWireBytes = bytes;
+        for (auto bytes : extension.MaximumResponseWireBytes) if (bytes > maximumWireBytes) maximumWireBytes = bytes;
 
         Primitive::ContractFingerprintBuilder fingerprint;
         fingerprint.Text("ESPressio.Command.Contract.v1");

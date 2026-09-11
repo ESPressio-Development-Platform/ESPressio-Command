@@ -1,0 +1,127 @@
+#pragma once
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <mutex>
+#include <type_traits>
+#include <utility>
+#include <ESPressio_IAtomicRecordStore.hpp>
+#include <ESPressio_RuntimeIdentity.hpp>
+#include <ESPressio_Synchronization.hpp>
+#include "ESPressio_CommandPolicies.hpp"
+#include "ESPressio_CommandTypes.hpp"
+
+namespace ESPressio::Command {
+
+/// <summary>Fixed backend/key binding for one Transmissible Command Type's mandatory execution ledger.</summary>
+struct CommandPersistenceBinding final {
+    Persistence::IAtomicRecordStore* Store=nullptr;
+    Persistence::AtomicRecordKey LedgerKey{};
+    constexpr explicit operator bool() const noexcept { return Store && bool(LedgerKey); }
+};
+
+enum class CommandLedgerSlotState : std::uint8_t { Empty=0, Started=1, Completed=2, HandlerFailed=3, Indeterminate=4 };
+constexpr bool IsTerminalLedgerState(CommandLedgerSlotState state) noexcept {
+    return state==CommandLedgerSlotState::Completed || state==CommandLedgerSlotState::HandlerFailed || state==CommandLedgerSlotState::Indeterminate;
+}
+struct CommandLedgerClassification final {
+    CommandRemoteAdmissionStatus Status=CommandRemoteAdmissionStatus::Invalid;
+    CommandResponseDisposition Disposition=CommandResponseDisposition::Succeeded;
+};
+
+template<class T> class CommandExecutionLedger final {
+    static_assert(T::IsTransmissibleCommand && T::ValidateTier());
+    using Retention=CompletionRetentionTraits<typename T::CompletionRetentionPolicy>;
+    static constexpr std::size_t OriginCapacity=Retention::MaximumTrackedOrigins;
+    static constexpr std::size_t WindowCapacity=Retention::ReplayWindowEntries;
+    static_assert(OriginCapacity>0 && WindowCapacity>0 && OriginCapacity<=UINT16_MAX && WindowCapacity<=UINT16_MAX);
+    struct Slot final { CommandId Id{};CommandLedgerSlotState State=CommandLedgerSlotState::Empty;System::RuntimeIncarnationId ExecutorRuntime{}; };
+    struct Origin final {
+        bool Used=false;System::DeviceIdentifier Device{};System::RuntimeIncarnationId HighestRuntime{};
+        System::RuntimeIncarnationId CurrentRuntime{};CommandId ReplayFloor{};std::array<Slot,WindowCapacity> Slots{};
+    };
+    enum class PendingKind : std::uint8_t { None, Existing, NewOrigin, NewRuntime, Compact };
+    struct Pending final {
+        bool Active=false;std::uint64_t Generation=0;CommandExecutionKey Key{};PendingKind Kind=PendingKind::None;
+        std::uint16_t SlotIndex=UINT16_MAX;CommandId ProposedFloor{};
+    };
+public:
+    static constexpr std::size_t RecordHeaderBytes=72;
+    static constexpr std::size_t PersistentSlotBytes=9;
+    static constexpr std::size_t PersistentOriginBytes=29+WindowCapacity*PersistentSlotBytes;
+    static constexpr std::size_t RecordBytes=RecordHeaderBytes+OriginCapacity*PersistentOriginBytes+4;
+    class Reservation final {
+        CommandExecutionLedger* _ledger=nullptr;std::uint16_t _origin=UINT16_MAX;std::uint64_t _generation=0;
+        CommandExecutionKey _key{};bool _started=false;
+        friend class CommandExecutionLedger;
+        Reservation(CommandExecutionLedger* ledger,std::uint16_t origin,std::uint64_t generation,CommandExecutionKey key) noexcept
+            :_ledger(ledger),_origin(origin),_generation(generation),_key(key){}
+    public:
+        Reservation() noexcept=default;Reservation(const Reservation&)=delete;Reservation& operator=(const Reservation&)=delete;
+        Reservation(Reservation&& other) noexcept
+            :_ledger(std::exchange(other._ledger,nullptr)),_origin(other._origin),_generation(other._generation),_key(other._key),_started(other._started){}
+        Reservation& operator=(Reservation&& other) noexcept {
+            if(this==&other) return *this;Reset();_ledger=std::exchange(other._ledger,nullptr);_origin=other._origin;
+            _generation=other._generation;_key=other._key;_started=other._started;return *this;
+        }
+        ~Reservation(){Reset();}
+        explicit operator bool() const noexcept { return _ledger && _origin!=UINT16_MAX && _generation && _key.IsValid(); }
+        CommandExecutionKey Key() const noexcept;
+        bool CommitStarted(System::RuntimeIncarnationId executorRuntime) noexcept;
+        bool CommitTerminal(CommandResponseDisposition disposition) noexcept;
+        void Reset() noexcept;
+    };
+    struct Admission final {
+        CommandLedgerClassification Classification{};Reservation Reserved{};
+        explicit operator bool() const noexcept { return Classification.Status==CommandRemoteAdmissionStatus::Admitted && bool(Reserved); }
+    };
+private:
+    std::array<Origin,OriginCapacity> _origins{};std::array<Pending,OriginCapacity> _pending{};
+    std::array<std::uint64_t,OriginCapacity> _generations{};Origin _rollbackOrigin{};
+    std::array<std::uint8_t,RecordBytes> _recordScratch{};System::Synchronization::Mutex _mutex;
+    CommandPersistenceBinding _binding{};System::DeviceIdentifier _localDevice{};Primitive::ContractFingerprint _contract{};bool _initialized=false;
+    static constexpr std::uint8_t Magic[4]={'C','M','D','L'};static constexpr std::uint16_t RecordVersion=1;
+    static void WriteLE(std::uint8_t*,std::uint64_t,std::size_t) noexcept;
+    static std::uint64_t ReadLE(const std::uint8_t*,std::size_t) noexcept;
+    static std::uint32_t Crc32(const std::uint8_t*,std::size_t) noexcept;
+    void EncodeRecord() noexcept;bool DecodeRecord(const std::uint8_t*,std::size_t) noexcept;
+    Persistence::AtomicRecordStatus PersistLocked() noexcept;
+    std::size_t FindOrigin(System::DeviceIdentifier) const noexcept;std::size_t FindUnusedOrigin() const noexcept;
+    std::size_t FindSlot(const Origin&,CommandId) const noexcept;std::size_t FindEmptySlot(const Origin&) const noexcept;
+    std::size_t FindCompactableSlot(const Origin&) const noexcept;static CommandLedgerClassification ClassifySlot(const Slot&) noexcept;
+    void Abort(std::uint16_t,std::uint64_t) noexcept;bool CommitStarted(std::uint16_t,std::uint64_t,System::RuntimeIncarnationId) noexcept;
+    bool CommitTerminal(std::uint16_t,const CommandExecutionKey&,CommandResponseDisposition) noexcept;
+public:
+    CommandExecutionLedger() noexcept=default;CommandExecutionLedger(const CommandExecutionLedger&)=delete;CommandExecutionLedger& operator=(const CommandExecutionLedger&)=delete;
+    CommandRuntimeStatus Bind(CommandPersistenceBinding) noexcept;bool HasBinding() const noexcept { return bool(_binding); }
+    CommandRuntimeStatus Initialize() noexcept;void RollbackInitialization() noexcept;
+    Admission TryReserve(const CommandExecutionKey&) noexcept;CommandLedgerClassification Classify(const CommandExecutionKey&) noexcept;
+    bool HasRecoveredStarted() const noexcept;
+    static constexpr std::size_t MaximumTrackedOrigins=OriginCapacity;static constexpr std::size_t ReplayWindowEntries=WindowCapacity;
+};
+
+namespace Detail {
+struct NoCommandLedgerReservation final { explicit operator bool() const noexcept { return false; } };
+template<class T,bool Transmissible=T::IsTransmissibleCommand> class CommandLedgerStorage;
+template<class T> class CommandLedgerStorage<T,false> final {
+public:
+    using Reservation=NoCommandLedgerReservation;
+    CommandRuntimeStatus Bind(CommandPersistenceBinding) noexcept { return CommandRuntimeStatus::InvalidConfiguration; }
+    bool HasBinding() const noexcept { return false; }CommandRuntimeStatus Initialize() noexcept { return CommandRuntimeStatus::Success; }
+    void RollbackInitialization() noexcept {}
+};
+template<class T> class CommandLedgerStorage<T,true> final {
+    CommandExecutionLedger<T> _ledger;
+public:
+    using Reservation=typename CommandExecutionLedger<T>::Reservation;
+    CommandRuntimeStatus Bind(CommandPersistenceBinding binding) noexcept { return _ledger.Bind(binding); }
+    bool HasBinding() const noexcept { return _ledger.HasBinding(); }CommandRuntimeStatus Initialize() noexcept { return _ledger.Initialize(); }
+    void RollbackInitialization() noexcept { _ledger.RollbackInitialization(); }
+    typename CommandExecutionLedger<T>::Admission TryReserve(const CommandExecutionKey& key) noexcept { return _ledger.TryReserve(key); }
+    CommandLedgerClassification Classify(const CommandExecutionKey& key) noexcept { return _ledger.Classify(key); }
+    CommandExecutionLedger<T>& Ledger() noexcept { return _ledger; }
+};
+}
+}
+#include "detail/ESPressio_CommandPersistence_Impl.hpp"

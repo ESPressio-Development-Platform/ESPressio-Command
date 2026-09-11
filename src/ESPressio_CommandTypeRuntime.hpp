@@ -14,6 +14,7 @@
 #include "ESPressio_Command.hpp"
 #include "ESPressio_CommandHandlerBinding.hpp"
 #include "ESPressio_CommandPendingQueue.hpp"
+#include "ESPressio_CommandPersistence.hpp"
 #include "ESPressio_CommandPolicies.hpp"
 #include "ESPressio_CommandRequestPool.hpp"
 #include "ESPressio_CommandResponseRouter.hpp"
@@ -39,12 +40,15 @@ template<class T> class CommandTypeRuntime final {
     static constexpr std::size_t ResponseCapacity=Detail::ResponseCapacity<T>::value;
     using ResponsePool=CommandResponseSlotPool<Response,ResponseCapacity>;
     using ResponseHandle=typename ResponsePool::Handle;
+    using LedgerStorage=Detail::CommandLedgerStorage<T>;
+    using LedgerReservation=typename LedgerStorage::Reservation;
     struct WorkItem final {
         CommandRequestLease<T> Request{};
         ResponseHandle ResponseReservation{};
+        LedgerReservation Ledger{};
         WorkItem() noexcept=default;
-        WorkItem(CommandRequestLease<T>&& request,ResponseHandle response) noexcept
-            :Request(std::move(request)),ResponseReservation(response){}
+        WorkItem(CommandRequestLease<T>&& request,ResponseHandle response,LedgerReservation&& ledger={}) noexcept
+            :Request(std::move(request)),ResponseReservation(response),Ledger(std::move(ledger)){}
         WorkItem(const WorkItem&)=delete;
         WorkItem& operator=(const WorkItem&)=delete;
         WorkItem(WorkItem&&)=default;
@@ -58,6 +62,7 @@ template<class T> class CommandTypeRuntime final {
     std::array<bool,LaneCount> _laneAvailable{};
     std::array<bool,LaneCount> _laneExhausted{};
     ResponsePool _responses{};
+    LedgerStorage _ledger{};
     CommandHandlerBinding<T> _handler;
     System::Synchronization::Mutex _admission;
     std::unique_ptr<System::Synchronization::ISignal> _capacityChanged;
@@ -70,6 +75,7 @@ template<class T> class CommandTypeRuntime final {
 
     CommandTypeRuntime() noexcept=default;
     static Timing::QualifiedTime CaptureSystemTime();
+    static CommandSubmissionStatus MapLedgerStatus(CommandRemoteAdmissionStatus) noexcept;
     void Wake() noexcept;
     std::size_t LaneIndex(const Task::IdleWorkerTask<WorkItem>*) const noexcept;
     bool TryIssue(CommandId&) noexcept;
@@ -78,6 +84,8 @@ template<class T> class CommandTypeRuntime final {
     void ExecuteLane(WorkItem&) noexcept;
     template<bool Blocking,class... Args> CommandSubmissionResult SubmitNoResponse(Args&&...);
     CommandRuntimeStatus BindResponseRouter(CommandResponseRouterBinding) noexcept;
+    CommandRuntimeStatus BindPersistence(CommandPersistenceBinding) noexcept;
+    bool HasPersistence() const noexcept;
     template<class> friend struct CommandDescriptorProvider;
 public:
     static CommandTypeRuntime& Get() noexcept;

@@ -4,6 +4,16 @@ template<class T>
 Timing::QualifiedTime CommandTypeRuntime<T>::CaptureSystemTime(){
     return Timing::SystemClock<>::GetInstance().CaptureQualifiedTime();
 }
+template<class T>
+CommandSubmissionStatus CommandTypeRuntime<T>::MapLedgerStatus(CommandRemoteAdmissionStatus status) noexcept {
+    switch(status){
+        case CommandRemoteAdmissionStatus::LedgerCapacityUnavailable: return CommandSubmissionStatus::LedgerCapacityUnavailable;
+        case CommandRemoteAdmissionStatus::TemporarilyUnavailable:
+        case CommandRemoteAdmissionStatus::InProgress: return CommandSubmissionStatus::CapacityUnavailable;
+        case CommandRemoteAdmissionStatus::SchemaOrDecodeFailure: return CommandSubmissionStatus::SchemaOrDecodeFailure;
+        default: return CommandSubmissionStatus::InvalidRequest;
+    }
+}
 template<class T> void CommandTypeRuntime<T>::Wake() noexcept {
     if(_capacityChanged) (void)_capacityChanged->Give();
 }
@@ -50,13 +60,20 @@ void CommandTypeRuntime<T>::OnLaneReleased(Task::IdleWorkerTask<WorkItem>& worke
 template<class T> void CommandTypeRuntime<T>::ExecuteLane(WorkItem& item) noexcept {
     const auto* executor=System::RuntimeIdentity::TryGet();
     if(!executor) std::terminate();
+    if constexpr(T::IsTransmissibleCommand){
+        if(!item.Ledger || !item.Ledger.CommitStarted(executor->Incarnation)) std::terminate();
+    }
     const CommandExecutionContext context{item.Request.Facts().Key,item.Request.Facts().OriginRequestTime,*executor};
     if constexpr(std::is_same_v<Response,NoCommandResponse>){
-        (void)_handler.Invoke(item.Request.Request(),context,nullptr);
+        const auto disposition=_handler.Invoke(item.Request.Request(),context,nullptr);
+        if constexpr(T::IsTransmissibleCommand)
+            if(!item.Ledger.CommitTerminal(disposition)) std::terminate();
     } else {
         void* storage=_responses.Storage(item.ResponseReservation);
         if(!storage) std::terminate();
         const auto disposition=_handler.Invoke(item.Request.Request(),context,storage);
+        if constexpr(T::IsTransmissibleCommand)
+            if(!item.Ledger.CommitTerminal(disposition)) std::terminate();
         const bool payload=disposition==CommandResponseDisposition::Succeeded;
         if(!_responses.Publish(item.ResponseReservation,disposition,*executor,payload)) std::terminate();
         const auto routeWork=_responses.RouteWork(item.ResponseReservation);
@@ -92,26 +109,40 @@ CommandSubmissionResult CommandTypeRuntime<T>::SubmitNoResponse(Args&&... args) 
         if(_phase!=Phase::Running || (_familyRunning && !_familyRunning->load(std::memory_order_acquire))){
             lock.unlock();Wake();return {CommandSubmissionStatus::Stopping,id};
         }
-        auto reservation=_pool.TryReserve();
-        if(reservation){
-            auto lease=reservation.Construct({key,originTime},std::forward<Args>(args)...);
-            WorkItem item{std::move(lease),{}};
-            if(_pending.Empty()){
-                for(std::size_t i=0;i<LaneCount;++i){
-                    if(!_laneAvailable[i] || _laneExhausted[i]) continue;
-                    _laneAvailable[i]=false;
-                    const auto result=_lanes[i].TryAssign(std::move(item));
-                    if(result.Status==Task::TaskExecutionStatus::GenerationExhausted){_laneExhausted[i]=true;break;}
-                    if(!result) std::terminate();
-                    return {CommandSubmissionStatus::Accepted,id};
-                }
-            }
-            if(_pending.TryPush(std::move(item))) return {CommandSubmissionStatus::Accepted,id};
+        bool laneCapacity=false;
+        for(std::size_t i=0;i<LaneCount;++i) if(_laneAvailable[i] && !_laneExhausted[i]){laneCapacity=true;break;}
+        const bool queueCapacity=_pending.Size()<T::MaximumPendingExecutions;
+        if(!laneCapacity && !queueCapacity){
+            if constexpr(Blocking && policyWait){lock.unlock();(void)_capacityChanged->Wait();continue;}
+            if constexpr(std::is_same_v<typename T::ExecutionAdmissionPolicy,DiscardableExecution>)
+                return {CommandSubmissionStatus::Discarded,id};
+            return {CommandSubmissionStatus::CapacityUnavailable,id};
         }
-        if constexpr(Blocking && policyWait){lock.unlock();(void)_capacityChanged->Wait();continue;}
-        if constexpr(std::is_same_v<typename T::ExecutionAdmissionPolicy,DiscardableExecution>)
-            return {CommandSubmissionStatus::Discarded,id};
-        return {CommandSubmissionStatus::CapacityUnavailable,id};
+        auto reservation=_pool.TryReserve();
+        if(!reservation){
+            if constexpr(Blocking && policyWait){lock.unlock();(void)_capacityChanged->Wait();continue;}
+            return {CommandSubmissionStatus::CapacityUnavailable,id};
+        }
+        LedgerReservation ledger{};
+        if constexpr(T::IsTransmissibleCommand){
+            auto admitted=_ledger.TryReserve(key);
+            if(!admitted) return {MapLedgerStatus(admitted.Classification.Status),id};
+            ledger=std::move(admitted.Reserved);
+        }
+        auto lease=reservation.Construct({key,originTime},std::forward<Args>(args)...);
+        WorkItem item{std::move(lease),{},std::move(ledger)};
+        if(_pending.Empty()){
+            for(std::size_t i=0;i<LaneCount;++i){
+                if(!_laneAvailable[i] || _laneExhausted[i]) continue;
+                _laneAvailable[i]=false;
+                const auto result=_lanes[i].TryAssign(std::move(item));
+                if(result.Status==Task::TaskExecutionStatus::GenerationExhausted){_laneExhausted[i]=true;continue;}
+                if(!result) std::terminate();
+                return {CommandSubmissionStatus::Accepted,id};
+            }
+        }
+        if(_pending.TryPush(std::move(item))) return {CommandSubmissionStatus::Accepted,id};
+        std::terminate();
     }
 }
 template<class T> CommandTypeRuntime<T>& CommandTypeRuntime<T>::Get() noexcept {
@@ -135,6 +166,16 @@ CommandRuntimeStatus CommandTypeRuntime<T>::BindResponseRouter(CommandResponseRo
     }
 }
 template<class T>
+CommandRuntimeStatus CommandTypeRuntime<T>::BindPersistence(CommandPersistenceBinding binding) noexcept {
+    if(_phase.load(std::memory_order_acquire)!=Phase::Uninitialized) return CommandRuntimeStatus::Frozen;
+    if constexpr(T::IsTransmissibleCommand) return _ledger.Bind(binding);
+    else return CommandRuntimeStatus::InvalidConfiguration;
+}
+template<class T> bool CommandTypeRuntime<T>::HasPersistence() const noexcept {
+    if constexpr(T::IsTransmissibleCommand) return _ledger.HasBinding();
+    else return true;
+}
+template<class T>
 CommandRuntimeStatus CommandTypeRuntime<T>::Initialize(Task::TaskExecutionConfiguration config,Timing::QualifiedTime(*capture)(),
                                                        const std::atomic<bool>* familyRunning) {
     std::lock_guard<System::Synchronization::Mutex> lock(_admission);
@@ -143,12 +184,28 @@ CommandRuntimeStatus CommandTypeRuntime<T>::Initialize(Task::TaskExecutionConfig
         return !_handler.IsBound()?CommandRuntimeStatus::MissingHandler:CommandRuntimeStatus::InvalidConfiguration;
     if constexpr(!std::is_same_v<Response,NoCommandResponse>)
         if(!_responseRouter) return CommandRuntimeStatus::InvalidConfiguration;
+    if constexpr(T::IsTransmissibleCommand){
+        const auto ledgerStatus=_ledger.Initialize();
+        if(ledgerStatus!=CommandRuntimeStatus::Success) return ledgerStatus;
+    }
     if(!capture) capture=&CaptureSystemTime;
-    try{(void)capture();}catch(...){return CommandRuntimeStatus::StorageUnavailable;}
+    try{(void)capture();}catch(...){
+        if constexpr(T::IsTransmissibleCommand) _ledger.RollbackInitialization();
+        return CommandRuntimeStatus::StorageUnavailable;
+    }
     auto* provider=System::Synchronization::Provider();
-    if(!provider) return CommandRuntimeStatus::StorageUnavailable;
-    try{_capacityChanged=provider->CreateBinarySignal(false);}catch(...){return CommandRuntimeStatus::StorageUnavailable;}
-    if(!_capacityChanged) return CommandRuntimeStatus::StorageUnavailable;
+    if(!provider){
+        if constexpr(T::IsTransmissibleCommand) _ledger.RollbackInitialization();
+        return CommandRuntimeStatus::StorageUnavailable;
+    }
+    try{_capacityChanged=provider->CreateBinarySignal(false);}catch(...){
+        if constexpr(T::IsTransmissibleCommand) _ledger.RollbackInitialization();
+        return CommandRuntimeStatus::StorageUnavailable;
+    }
+    if(!_capacityChanged){
+        if constexpr(T::IsTransmissibleCommand) _ledger.RollbackInitialization();
+        return CommandRuntimeStatus::StorageUnavailable;
+    }
     _pool.BindCapacityWake(this,[](void* p) noexcept{static_cast<CommandTypeRuntime*>(p)->Wake();});
     if constexpr(!std::is_same_v<Response,NoCommandResponse>)
         _responses.BindCapacityWake(this,[](void* p) noexcept{static_cast<CommandTypeRuntime*>(p)->Wake();});
@@ -161,6 +218,7 @@ CommandRuntimeStatus CommandTypeRuntime<T>::Initialize(Task::TaskExecutionConfig
     if(initialized!=LaneCount){
         while(initialized) (void)_lanes[--initialized].Shutdown();
         _capacityChanged.reset();
+        if constexpr(T::IsTransmissibleCommand) _ledger.RollbackInitialization();
         return CommandRuntimeStatus::TaskCreationFailed;
     }
     _captureTime=capture;_familyRunning=familyRunning;_phase=Phase::Prepared;
@@ -193,6 +251,7 @@ template<class T> CommandRuntimeStatus CommandTypeRuntime<T>::RollbackInitializa
     for(auto& lane:_lanes)
         if(lane.Shutdown()!=Task::TaskExecutionStatus::Success) return CommandRuntimeStatus::JoinFailed;
     _capacityChanged.reset();_captureTime=nullptr;_familyRunning=nullptr;_phase=Phase::Uninitialized;
+    if constexpr(T::IsTransmissibleCommand) _ledger.RollbackInitialization();
     return CommandRuntimeStatus::Success;
 }
 template<class T> template<bool Blocking,class... Args>
@@ -229,53 +288,63 @@ CommandSubmissionResult CommandTypeRuntime<T>::SubmitLocalResponse(const Detail:
         if(_phase!=Phase::Running || (_familyRunning && !_familyRunning->load(std::memory_order_acquire))){
             lock.unlock();Wake();return {CommandSubmissionStatus::Stopping,id};
         }
-        if(!requester.CanHandoff(requester.Context,requester.Index,requester.Generation))
+        bool laneCapacity=false;
+        for(std::size_t i=0;i<LaneCount;++i) if(_laneAvailable[i] && !_laneExhausted[i]){laneCapacity=true;break;}
+        const bool queueCapacity=_pending.Size()<T::MaximumPendingExecutions;
+        if(!laneCapacity && !queueCapacity){
+            if constexpr(Blocking && policyWait){
+                const auto wait=requester.RemainingWaitMilliseconds(requester.Context,requester.Index,requester.Generation);
+                lock.unlock();if(!wait) return {CommandSubmissionStatus::CapacityUnavailable,id};
+                (void)_capacityChanged->Wait(wait);continue;
+            }
             return {CommandSubmissionStatus::CapacityUnavailable,id};
+        }
         auto response=_responses.TryReserve(key,destination);
         if(!response){
             if constexpr(Blocking && policyWait){
                 const auto wait=requester.RemainingWaitMilliseconds(requester.Context,requester.Index,requester.Generation);
-                lock.unlock();
-                if(!wait) return {CommandSubmissionStatus::CapacityUnavailable,id};
-                (void)_capacityChanged->Wait(wait);
-                continue;
+                lock.unlock();if(!wait) return {CommandSubmissionStatus::CapacityUnavailable,id};
+                (void)_capacityChanged->Wait(wait);continue;
             }
             return {CommandSubmissionStatus::ResponseCapacityUnavailable,id};
         }
         auto reservation=_pool.TryReserve();
-        if(reservation){
-            try{
-                auto lease=reservation.Construct({key,originTime},std::forward<Args>(args)...);
-                WorkItem item{std::move(lease),response};
-                if(_pending.Empty()){
-                    for(std::size_t i=0;i<LaneCount;++i){
-                        if(!_laneAvailable[i] || _laneExhausted[i]) continue;
-                        if(!requester.CanHandoff(requester.Context,requester.Index,requester.Generation)){
-                            _responses.Release(response);
-                            return {CommandSubmissionStatus::CapacityUnavailable,id};
-                        }
-                        _laneAvailable[i]=false;
-                        const auto result=_lanes[i].TryAssign(std::move(item));
-                        if(result.Status==Task::TaskExecutionStatus::GenerationExhausted){_laneExhausted[i]=true;break;}
-                        if(!result) std::terminate();
-                        return {CommandSubmissionStatus::Accepted,id};
+        if(!reservation){
+            _responses.Release(response);
+            if constexpr(Blocking && policyWait){
+                const auto wait=requester.RemainingWaitMilliseconds(requester.Context,requester.Index,requester.Generation);
+                lock.unlock();if(!wait) return {CommandSubmissionStatus::CapacityUnavailable,id};
+                (void)_capacityChanged->Wait(wait);continue;
+            }
+            return {CommandSubmissionStatus::CapacityUnavailable,id};
+        }
+        LedgerReservation ledger{};
+        if constexpr(T::IsTransmissibleCommand){
+            auto admitted=_ledger.TryReserve(key);
+            if(!admitted){_responses.Release(response);return {MapLedgerStatus(admitted.Classification.Status),id};}
+            ledger=std::move(admitted.Reserved);
+        }
+        try{
+            auto lease=reservation.Construct({key,originTime},std::forward<Args>(args)...);
+            WorkItem item{std::move(lease),response,std::move(ledger)};
+            if(_pending.Empty()){
+                for(std::size_t i=0;i<LaneCount;++i){
+                    if(!_laneAvailable[i] || _laneExhausted[i]) continue;
+                    if(!requester.CanHandoff(requester.Context,requester.Index,requester.Generation)){
+                        _responses.Release(response);return {CommandSubmissionStatus::CapacityUnavailable,id};
                     }
-                }
-                if(requester.CanHandoff(requester.Context,requester.Index,requester.Generation) && _pending.TryPush(std::move(item)))
+                    _laneAvailable[i]=false;
+                    const auto result=_lanes[i].TryAssign(std::move(item));
+                    if(result.Status==Task::TaskExecutionStatus::GenerationExhausted){_laneExhausted[i]=true;continue;}
+                    if(!result) std::terminate();
                     return {CommandSubmissionStatus::Accepted,id};
-            }catch(...){_responses.Release(response);throw;}
-        }
-        _responses.Release(response);
-        if constexpr(Blocking && policyWait){
-            const auto wait=requester.RemainingWaitMilliseconds(requester.Context,requester.Index,requester.Generation);
-            lock.unlock();
-            if(!wait) return {CommandSubmissionStatus::CapacityUnavailable,id};
-            (void)_capacityChanged->Wait(wait);
-            continue;
-        }
-        if constexpr(std::is_same_v<typename T::ExecutionAdmissionPolicy,DiscardableExecution>)
-            return {CommandSubmissionStatus::Discarded,id};
-        return {CommandSubmissionStatus::CapacityUnavailable,id};
+                }
+            }
+            if(requester.CanHandoff(requester.Context,requester.Index,requester.Generation) && _pending.TryPush(std::move(item)))
+                return {CommandSubmissionStatus::Accepted,id};
+            _responses.Release(response);
+            return {CommandSubmissionStatus::CapacityUnavailable,id};
+        }catch(...){_responses.Release(response);throw;}
     }
 }
 template<class T> std::size_t CommandTypeRuntime<T>::LiveRequests() const noexcept { return _pool.Occupied(); }

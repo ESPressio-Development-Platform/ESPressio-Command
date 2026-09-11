@@ -11,6 +11,7 @@
 #include "ESPressio_CommandResponseCapability.hpp"
 #include "ESPressio_CommandResponseRouter.hpp"
 #include "ESPressio_CommandResponseSlot.hpp"
+#include "ESPressio_CommandPersistence.hpp"
 #include "ESPressio_CommandTypeRuntime.hpp"
 #include "ESPressio_CommandClient.hpp"
 #include "ESPressio_CommandWireV1.hpp"
