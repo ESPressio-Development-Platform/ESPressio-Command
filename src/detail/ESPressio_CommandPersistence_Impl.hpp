@@ -178,18 +178,31 @@ CommandRuntimeStatus CommandExecutionLedger<T>::Initialize() noexcept {
             ? CommandRuntimeStatus::PersistenceCorrupt : CommandRuntimeStatus::StorageUnavailable;
     std::size_t bytes=0;
     const auto read=_binding.Store->Read(_binding.LedgerKey,_recordScratch.data(),_recordScratch.size(),bytes);
+    bool recoveredStarted=false;
     if(read==Persistence::AtomicRecordStatus::NotFound){
         _origins.fill({});_pending.fill({});_generations.fill(0);
         if(PersistLocked()!=Persistence::AtomicRecordStatus::Success) return CommandRuntimeStatus::StorageUnavailable;
     }else if(read==Persistence::AtomicRecordStatus::Success){
         if(!DecodeRecord(_recordScratch.data(),bytes)) return CommandRuntimeStatus::PersistenceCorrupt;
         _pending.fill({});_generations.fill(0);
+        for(auto& origin:_origins){
+            if(!origin.Used) continue;
+            for(auto& slot:origin.Slots){
+                if(slot.State!=CommandLedgerSlotState::Started) continue;
+                slot.State=CommandLedgerSlotState::Indeterminate;
+                recoveredStarted=true;
+            }
+        }
+        if(recoveredStarted){
+            const auto recovery=PersistLocked();
+            if(recovery!=Persistence::AtomicRecordStatus::Success)
+                return recovery==Persistence::AtomicRecordStatus::Corrupt || recovery==Persistence::AtomicRecordStatus::CommitAmbiguous
+                    ? CommandRuntimeStatus::PersistenceCorrupt : CommandRuntimeStatus::StorageUnavailable;
+        }
     }else{
         return read==Persistence::AtomicRecordStatus::Corrupt || read==Persistence::AtomicRecordStatus::CommitAmbiguous
             ? CommandRuntimeStatus::PersistenceCorrupt : CommandRuntimeStatus::StorageUnavailable;
     }
-    // C4-15 will recover durable Started to terminal Indeterminate before Start. Until then fail closed.
-    if(HasRecoveredStarted()) return CommandRuntimeStatus::PersistenceCorrupt;
     _initialized=true;
     return CommandRuntimeStatus::Success;
 }
