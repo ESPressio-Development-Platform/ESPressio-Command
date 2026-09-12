@@ -136,7 +136,9 @@ template<class T> class CommandTypeRuntime final {
     bool HasPersistence() const noexcept;
     bool HasTransport() const noexcept;
     bool ValidateTransport() noexcept;
+    CommandRuntimeStatus StageRecoveredResponses() noexcept;
     CommandRuntimeStatus StageRecoveredResponsesLocked() noexcept;
+    void ReleaseRecoveryStaging() noexcept;
     void ReleaseRecoveryStagingLocked() noexcept;
     void PumpRecoveredResponses() noexcept;
     void PumpRecoveredResponsesLocked() noexcept;
