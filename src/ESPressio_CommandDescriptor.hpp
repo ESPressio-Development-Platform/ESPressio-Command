@@ -38,6 +38,9 @@ struct CommandTypeDescriptor final {
     CommandRuntimeStatus (*BindPersistence)(CommandPersistenceBinding) noexcept = nullptr;
     CommandRuntimeStatus (*BindResponseRouter)(CommandResponseRouterBinding) noexcept = nullptr;
     CommandRuntimeStatus (*Initialize)(Task::TaskExecutionConfiguration, const std::atomic<bool>*) = nullptr;
+    CommandRuntimeStatus (*StageRecoveredResponses)() noexcept = nullptr;
+    void (*PumpRecoveredResponses)() noexcept = nullptr;
+    void (*ReleaseRecoveryStaging)() noexcept = nullptr;
     bool (*ValidateStart)() noexcept = nullptr;
     void (*StartValidated)() noexcept = nullptr;
     void (*CloseAdmissions)() noexcept = nullptr;
@@ -89,9 +92,18 @@ template<class T> struct CommandDescriptorProvider final {
             value.Initialize = [](Task::TaskExecutionConfiguration config, const std::atomic<bool>* running) {
                 return CommandTypeRuntime<T>::Get().Initialize(config, nullptr, running);
             };
+            value.StageRecoveredResponses=[]() noexcept {
+                return CommandTypeRuntime<T>::Get().StageRecoveredResponses();
+            };
+            value.PumpRecoveredResponses=[]() noexcept {
+                CommandTypeRuntime<T>::Get().PumpRecoveredResponses();
+            };
+            value.ReleaseRecoveryStaging=[]() noexcept {
+                CommandTypeRuntime<T>::Get().ReleaseRecoveryStaging();
+            };
             value.ValidateStart = []() noexcept {
                 auto& runtime=CommandTypeRuntime<T>::Get();
-                return runtime.ValidateStart() && runtime.ValidateTransport();
+                return runtime.ValidateStart() && runtime._transportValidated;
             };
             value.StartValidated = []() noexcept { CommandTypeRuntime<T>::Get().StartValidated(); };
             value.CloseAdmissions = []() noexcept { CommandTypeRuntime<T>::Get().CloseAdmissions(); };
