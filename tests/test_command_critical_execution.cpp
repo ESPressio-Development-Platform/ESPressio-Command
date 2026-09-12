@@ -92,15 +92,29 @@ int main(){
     const auto second=CriticalLocal::TryExecute(2);
     const auto third=CriticalLocal::TryExecute(3);
     assert(bool(first) && bool(second) && bool(third));
+    assert(first.Id.Value()==1 && second.Id.Value()==2 && third.Id.Value()==3);
+
+    // CommandId is issued before later bounded-capacity admission. The saturated fourth
+    // submission therefore burns id=4 even though no Command instance is admitted.
     const auto saturated=CriticalLocal::TryExecute(4);
     assert(!bool(saturated));
     assert(saturated.Status==C::CommandSubmissionStatus::CapacityUnavailable);
+    assert(!saturated.Id);
+    assert(C::CommandTypeRuntime<CriticalLocal>::Get().CommandIdHighWater()==4);
 
     Eventually([&]{return owner.CriticalStarted.load()==2;});
     assert(owner.ThirdObservedPriorStarts.load()==-1);
     owner.ReleaseCritical.store(true,std::memory_order_release);
     Eventually([&]{return owner.CriticalCompleted.load()==3;});
     assert(owner.ThirdObservedPriorStarts.load()>=2);
+
+    // Once capacity returns, the next accepted request receives id=5 rather than reusing
+    // the rejected submission's id=4.
+    const auto afterSaturation=CriticalLocal::TryExecute(5);
+    assert(bool(afterSaturation));
+    assert(afterSaturation.Id.Value()==5);
+    assert(C::CommandTypeRuntime<CriticalLocal>::Get().CommandIdHighWater()==5);
+    Eventually([&]{return owner.CriticalCompleted.load()==4;});
 
     // A throwing application handler is contained by the fixed binding and cannot unwind
     // through the T1 execution lane. The same lane must remain usable for the next request.
