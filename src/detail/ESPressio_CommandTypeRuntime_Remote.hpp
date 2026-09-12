@@ -59,63 +59,66 @@ CommandRemoteAdmissionResult CommandTypeRuntime<T>::TryAdmitRemoteRequest(
     auto ledgerAdmission=_ledger.TryReserve(header.Key);
     if(!ledgerAdmission){
         const auto classification=ledgerAdmission.Classification;
-        if constexpr(std::is_same_v<Response,NoCommandResponse>) return {classification.Status};
-        if(classification.Status==CommandRemoteAdmissionStatus::InProgress ||
-           classification.Status==CommandRemoteAdmissionStatus::LedgerCapacityUnavailable ||
-           classification.Status==CommandRemoteAdmissionStatus::TemporarilyUnavailable)
+        if constexpr(std::is_same_v<Response,NoCommandResponse>){
             return {classification.Status};
-
-        ResponseHandle response{};
-        System::DeviceRuntimeIdentity executor{};
-        CommandResponseDisposition disposition=classification.Disposition;
-        bool retained=false;
-        if(classification.Status==CommandRemoteAdmissionStatus::DuplicateTerminal){
-            CommandLedgerReplay replay{};
-            if(!_ledger.TryReadReplay(header.Key,replay)) std::terminate();
-            executor=replay.Executor;
-            disposition=replay.Classification.Disposition;
-            retained=replay.ResultRetained;
-            response=retained
-                ? _responses.TryReserveRetainedReplay(header.Key,destination)
-                : _responses.TryReserveFrameworkReply(header.Key,destination);
-        }else if(classification.Status==CommandRemoteAdmissionStatus::StaleOriginRuntime ||
-                 classification.Status==CommandRemoteAdmissionStatus::ExecutionHistoryExpired){
-            const auto* local=System::RuntimeIdentity::TryGet();
-            if(!local) std::terminate();
-            executor=*local;
-            response=_responses.TryReserveFrameworkReply(header.Key,destination);
         }else{
-            return {classification.Status};
-        }
-        if(!response) return {CommandRemoteAdmissionStatus::TemporarilyUnavailable};
+            if(classification.Status==CommandRemoteAdmissionStatus::InProgress ||
+               classification.Status==CommandRemoteAdmissionStatus::LedgerCapacityUnavailable ||
+               classification.Status==CommandRemoteAdmissionStatus::TemporarilyUnavailable)
+                return {classification.Status};
 
-        bool constructed=false;
-        if(retained){
-            if(disposition!=CommandResponseDisposition::Succeeded) std::terminate();
-            auto* storage=_responses.Storage(response);
-            if(!storage) std::terminate();
-            auto* value=new(storage) Response{};
-            if(!_ledger.LoadRetainedResult(header.Key,*value)){
-                value->~Response();
+            ResponseHandle response{};
+            System::DeviceRuntimeIdentity executor{};
+            CommandResponseDisposition disposition=classification.Disposition;
+            bool retained=false;
+            if(classification.Status==CommandRemoteAdmissionStatus::DuplicateTerminal){
+                CommandLedgerReplay replay{};
+                if(!_ledger.TryReadReplay(header.Key,replay)) std::terminate();
+                executor=replay.Executor;
+                disposition=replay.Classification.Disposition;
+                retained=replay.ResultRetained;
+                // This isolated slot role is also safe for payload-less framework replies:
+                // retirement runs only for an accepted Succeeded response, which implies retained=true.
+                response=_responses.TryReserveRetainedReplay(header.Key,destination);
+            }else if(classification.Status==CommandRemoteAdmissionStatus::StaleOriginRuntime ||
+                     classification.Status==CommandRemoteAdmissionStatus::ExecutionHistoryExpired){
+                const auto* local=System::RuntimeIdentity::TryGet();
+                if(!local) std::terminate();
+                executor=*local;
+                response=_responses.TryReserveRetainedReplay(header.Key,destination);
+            }else{
+                return {classification.Status};
+            }
+            if(!response) return {CommandRemoteAdmissionStatus::TemporarilyUnavailable};
+
+            bool constructed=false;
+            if(retained){
+                if(disposition!=CommandResponseDisposition::Succeeded) std::terminate();
+                auto* storage=_responses.Storage(response);
+                if(!storage) std::terminate();
+                auto* value=new(storage) Response{};
+                if(!_ledger.LoadRetainedResult(header.Key,*value)){
+                    value->~Response();
+                    _responses.Release(response);
+                    std::terminate();
+                }
+                constructed=true;
+            }
+            if(!_responses.Publish(response,disposition,executor,constructed)){
+                if(constructed)
+                    std::launder(reinterpret_cast<Response*>(_responses.Storage(response)))->~Response();
                 _responses.Release(response);
                 std::terminate();
             }
-            constructed=true;
+            const auto work=_responses.RouteWork(response);
+            if(!work || !_responseRouter) std::terminate();
+            const auto routed=_responseRouter.Submit(work);
+            if(routed!=Task::TaskExecutionStatus::Success){
+                work.Drop();
+                std::terminate();
+            }
+            return {classification.Status};
         }
-        if(!_responses.Publish(response,disposition,executor,constructed)){
-            if(constructed)
-                std::launder(reinterpret_cast<Response*>(_responses.Storage(response)))->~Response();
-            _responses.Release(response);
-            std::terminate();
-        }
-        const auto work=_responses.RouteWork(response);
-        if(!work || !_responseRouter) std::terminate();
-        const auto routed=_responseRouter.Submit(work);
-        if(routed!=Task::TaskExecutionStatus::Success){
-            work.Drop();
-            std::terminate();
-        }
-        return {classification.Status};
     }
 
     auto requestReservation=_pool.TryReserve();
