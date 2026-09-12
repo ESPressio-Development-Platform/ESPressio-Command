@@ -95,11 +95,11 @@ int main(){
     assert(first.Id.Value()==1 && second.Id.Value()==2 && third.Id.Value()==3);
 
     // CommandId is issued before later bounded-capacity admission. The saturated fourth
-    // submission therefore burns id=4 even though no Command instance is admitted.
+    // submission therefore reports and burns id=4 even though no Command instance is admitted.
     const auto saturated=CriticalLocal::TryExecute(4);
     assert(!bool(saturated));
     assert(saturated.Status==C::CommandSubmissionStatus::CapacityUnavailable);
-    assert(!saturated.Id);
+    assert(saturated.Id.Value()==4);
     assert(C::CommandTypeRuntime<CriticalLocal>::Get().CommandIdHighWater()==4);
 
     Eventually([&]{return owner.CriticalStarted.load()==2;});
