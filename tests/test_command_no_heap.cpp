@@ -67,10 +67,10 @@ int main(){
     // execution and release must now succeed while the process heap is denied.
     RejectHeap.store(true,std::memory_order_release);
     const auto first=NoHeapCommand::TryExecute(41);
-    assert(first.Accepted());
+    assert(bool(first));
     Eventually([&]{return owner.Seen.load()==41;});
     const auto second=NoHeapCommand::TryExecute(42);
-    assert(second.Accepted());
+    assert(bool(second));
     Eventually([&]{return owner.Seen.load()==42;});
     RejectHeap.store(false,std::memory_order_release);
 

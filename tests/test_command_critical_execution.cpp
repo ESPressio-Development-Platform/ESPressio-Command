@@ -91,9 +91,9 @@ int main(){
     const auto first=CriticalLocal::TryExecute(1);
     const auto second=CriticalLocal::TryExecute(2);
     const auto third=CriticalLocal::TryExecute(3);
-    assert(first.Accepted() && second.Accepted() && third.Accepted());
+    assert(bool(first) && bool(second) && bool(third));
     const auto saturated=CriticalLocal::TryExecute(4);
-    assert(!saturated.Accepted());
+    assert(!bool(saturated));
     assert(saturated.Status==C::CommandSubmissionStatus::CapacityUnavailable);
 
     Eventually([&]{return owner.CriticalStarted.load()==2;});
@@ -106,7 +106,7 @@ int main(){
     // through the T1 execution lane. The same lane must remain usable for the next request.
     const auto throwing=ThrowingLocal::TryExecute(1);
     const auto following=ThrowingLocal::TryExecute(2);
-    assert(throwing.Accepted() && following.Accepted());
+    assert(bool(throwing) && bool(following));
     Eventually([&]{return owner.ThrowAttempts.load()==2;});
     assert(owner.ThrowSucceeded.load()==2);
 

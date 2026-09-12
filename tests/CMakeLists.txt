@@ -11,7 +11,7 @@ foreach(dependency System Primitive Task Threads Timing Serializable Units Obser
 endforeach()
 list(APPEND COMMAND_INCLUDES "${ESPRESSIO_DEPENDENCIES}/ESPressio-Timing/tests/stubs" "${ESPRESSIO_DEPENDENCIES}/ESPressio-Task/tests")
 
-foreach(name core_contract wire_v1 response_capability runtime persistence persistent_results remote_replay outbound recovery critical_execution no_heap eradication)
+foreach(name core_contract wire_v1 response_capability runtime persistence persistent_results remote_replay outbound recovery critical_execution no_heap eradication fault_injection)
     add_executable(command_${name} test_command_${name}.cpp)
     target_include_directories(command_${name} PRIVATE ${COMMAND_INCLUDES})
     target_compile_options(command_${name} PRIVATE -Wall -Wextra -Werror -fno-rtti -UNDEBUG)
