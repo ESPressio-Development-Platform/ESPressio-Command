@@ -83,6 +83,7 @@ template<class T> struct CommandOutboundBindingView final {
     bool (*Validate)(void*,const CommandOutboundContract&) noexcept=nullptr;
     CommandOutboundAdmission (*Admit)(void*,System::DeviceIdentifier,const CommandRequestLease<T>&,CommandRequestDeliveryToken) noexcept=nullptr;
     CommandRemoteResponseDestination (*ReserveRecoveredResponse)(void*,const CommandExecutionKey&) noexcept=nullptr;
+    void (*ReleaseRecoveredResponse)(void*,CommandRemoteResponseDestination) noexcept=nullptr;
     constexpr explicit operator bool() const noexcept {
         return Owner && Validate && Admit && bool(Contract.TypeId) && IsValidCommandPayloadFormat(Contract.Format);
     }
@@ -116,6 +117,7 @@ public:
              CommandOutboundAdmission (Owner::*Admit)(System::DeviceIdentifier,const CommandRequestLease<T>&,CommandRequestDeliveryToken) noexcept,
              bool (Owner::*Validate)(const CommandOutboundContract&) noexcept,
              CommandRemoteResponseDestination (Owner::*ReserveRecoveredResponse)(const CommandExecutionKey&) noexcept,
+             void (Owner::*ReleaseRecoveredResponse)(CommandRemoteResponseDestination) noexcept,
              class R=typename T::ResponseType,
              std::enable_if_t<!std::is_same_v<R,NoCommandResponse>,int> =0>
     bool Initialize(Owner& owner) noexcept {
@@ -127,6 +129,9 @@ public:
         };
         _view.ReserveRecoveredResponse=[](void* p,const CommandExecutionKey& key) noexcept {
             return (static_cast<Owner*>(p)->*ReserveRecoveredResponse)(key);
+        };
+        _view.ReleaseRecoveredResponse=[](void* p,CommandRemoteResponseDestination destination) noexcept {
+            (static_cast<Owner*>(p)->*ReleaseRecoveredResponse)(destination);
         };
         return true;
     }
