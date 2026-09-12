@@ -121,7 +121,7 @@ struct Owner final {
 
 struct ResponseAdapter final {
     bool ValidateResult=true;
-    int ValidateCalls=0,AdmitCalls=0;
+    int ValidateCalls=0,AdmitCalls=0,ReleaseRecoveredCalls=0;
     C::CommandOutboundContract Contract{};
     C::CommandOutboundAdmissionStatus Next=C::CommandOutboundAdmissionStatus::Accepted;
     C::CommandRequestDeliveryToken Token{};
@@ -139,6 +139,7 @@ struct ResponseAdapter final {
         return {Next};
     }
     C::CommandRemoteResponseDestination ReserveRecovered(const C::CommandExecutionKey&) noexcept { return {}; }
+    void ReleaseRecovered(C::CommandRemoteResponseDestination) noexcept { ++ReleaseRecoveredCalls; }
     void ReleaseRequest() noexcept { Held={}; }
 };
 struct CriticalAdapter final {
@@ -187,7 +188,8 @@ int main(){
     ResponseAdapter responseAdapter;CriticalAdapter criticalAdapter;
     C::CommandOutboundBinding<OutboundCommand,Serializable::DirectBinary> responseTransport;
     C::CommandOutboundBinding<CriticalCommand,Serializable::CBOR> criticalTransport;
-    assert((responseTransport.Initialize<ResponseAdapter,&ResponseAdapter::Admit,&ResponseAdapter::Validate,&ResponseAdapter::ReserveRecovered>(responseAdapter)));
+    assert((responseTransport.Initialize<ResponseAdapter,&ResponseAdapter::Admit,&ResponseAdapter::Validate,
+                                         &ResponseAdapter::ReserveRecovered,&ResponseAdapter::ReleaseRecovered>(responseAdapter)));
     assert((criticalTransport.Initialize<CriticalAdapter,&CriticalAdapter::Admit,&CriticalAdapter::Validate>(criticalAdapter)));
     assert((runtime.BindTransport<OutboundCommand,Serializable::DirectBinary>(responseTransport)==C::CommandRuntimeStatus::Success));
     assert((runtime.BindTransport<CriticalCommand,Serializable::CBOR>(criticalTransport)==C::CommandRuntimeStatus::Success));
