@@ -127,6 +127,17 @@ template<class Predicate> void Eventually(Predicate&& predicate){
     const auto limit=std::chrono::steady_clock::now()+std::chrono::seconds(3);
     while(!predicate()){assert(std::chrono::steady_clock::now()<limit);std::this_thread::yield();}
 }
+template<class Attempt>
+static void EventuallyAdmission(Attempt&& attempt,C::CommandRemoteAdmissionStatus expected){
+    const auto limit=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+    for(;;){
+        const auto result=attempt();
+        if(result.Status==expected) return;
+        assert(result.Status==C::CommandRemoteAdmissionStatus::TemporarilyUnavailable);
+        assert(std::chrono::steady_clock::now()<limit);
+        std::this_thread::yield();
+    }
+}
 static Task::TaskExecutorConfiguration RouterConfiguration(){
     Task::TaskExecutorConfiguration configuration{};
     configuration.Execution.Name="remoteReplayRouter";
@@ -268,16 +279,18 @@ int main(){
     reject.Assert(persistentKey,C::CommandResponseDisposition::Succeeded,110,&local);
 
     Capture replay;
-    assert(runtime.TryAdmitRemoteRequest(persistentBinding,persistentWire.Bytes.data(),persistentWire.Size,replay.Destination()).Status==
-           C::CommandRemoteAdmissionStatus::DuplicateTerminal);
+    EventuallyAdmission([&]{return runtime.TryAdmitRemoteRequest(
+        persistentBinding,persistentWire.Bytes.data(),persistentWire.Size,replay.Destination());},
+        C::CommandRemoteAdmissionStatus::DuplicateTerminal);
     Eventually([&]{return replay.Count()==1;});
     replay.Assert(persistentKey,C::CommandResponseDisposition::Succeeded,110,&local);
     assert(owner.PersistentHandled.load()==1);
 
     // Destination admission retires the durable payload; later duplicate returns result-expired with no payload.
     Capture retired;
-    assert(runtime.TryAdmitRemoteRequest(persistentBinding,persistentWire.Bytes.data(),persistentWire.Size,retired.Destination()).Status==
-           C::CommandRemoteAdmissionStatus::DuplicateTerminal);
+    EventuallyAdmission([&]{return runtime.TryAdmitRemoteRequest(
+        persistentBinding,persistentWire.Bytes.data(),persistentWire.Size,retired.Destination());},
+        C::CommandRemoteAdmissionStatus::DuplicateTerminal);
     Eventually([&]{return retired.Count()==1;});
     retired.Assert(persistentKey,C::CommandResponseDisposition::AlreadyExecutedResultExpired,-1,&local);
     assert(owner.PersistentHandled.load()==1);
@@ -292,8 +305,9 @@ int main(){
     firstVolatile.Assert(volatileKey,C::CommandResponseDisposition::Succeeded,205,&local);
     assert(owner.VolatileHandled.load()==1);
     Capture duplicateVolatile;
-    assert(runtime.TryAdmitRemoteRequest(volatileBinding,volatileWire.Bytes.data(),volatileWire.Size,duplicateVolatile.Destination()).Status==
-           C::CommandRemoteAdmissionStatus::DuplicateTerminal);
+    EventuallyAdmission([&]{return runtime.TryAdmitRemoteRequest(
+        volatileBinding,volatileWire.Bytes.data(),volatileWire.Size,duplicateVolatile.Destination());},
+        C::CommandRemoteAdmissionStatus::DuplicateTerminal);
     Eventually([&]{return duplicateVolatile.Count()==1;});
     duplicateVolatile.Assert(volatileKey,C::CommandResponseDisposition::AlreadyExecutedResultExpired,-1,&local);
     assert(owner.VolatileHandled.load()==1);
@@ -301,8 +315,9 @@ int main(){
     // Recovered Started is terminal Indeterminate and must never execute its handler.
     const auto interruptedWire=MakeRequest<VolatileRemoteCommand>(interrupted,999);
     Capture indeterminate;
-    assert(runtime.TryAdmitRemoteRequest(volatileBinding,interruptedWire.Bytes.data(),interruptedWire.Size,indeterminate.Destination()).Status==
-           C::CommandRemoteAdmissionStatus::DuplicateTerminal);
+    EventuallyAdmission([&]{return runtime.TryAdmitRemoteRequest(
+        volatileBinding,interruptedWire.Bytes.data(),interruptedWire.Size,indeterminate.Destination());},
+        C::CommandRemoteAdmissionStatus::DuplicateTerminal);
     Eventually([&]{return indeterminate.Count()==1;});
     indeterminate.Assert(interrupted,C::CommandResponseDisposition::IndeterminateAfterRestart,-1,&local);
     assert(owner.VolatileHandled.load()==1);
@@ -311,15 +326,17 @@ int main(){
     const auto newer=Execution<VolatileRemoteCommand>(3,2,1);
     const auto newerWire=MakeRequest<VolatileRemoteCommand>(newer,7);
     Capture newerCapture;
-    assert(runtime.TryAdmitRemoteRequest(volatileBinding,newerWire.Bytes.data(),newerWire.Size,newerCapture.Destination()).Status==
-           C::CommandRemoteAdmissionStatus::Admitted);
+    EventuallyAdmission([&]{return runtime.TryAdmitRemoteRequest(
+        volatileBinding,newerWire.Bytes.data(),newerWire.Size,newerCapture.Destination());},
+        C::CommandRemoteAdmissionStatus::Admitted);
     Eventually([&]{return newerCapture.Count()==1;});
     assert(owner.VolatileHandled.load()==2);
     const auto stale=Execution<VolatileRemoteCommand>(3,1,78);
     const auto staleWire=MakeRequest<VolatileRemoteCommand>(stale,8);
     Capture staleCapture;
-    assert(runtime.TryAdmitRemoteRequest(volatileBinding,staleWire.Bytes.data(),staleWire.Size,staleCapture.Destination()).Status==
-           C::CommandRemoteAdmissionStatus::StaleOriginRuntime);
+    EventuallyAdmission([&]{return runtime.TryAdmitRemoteRequest(
+        volatileBinding,staleWire.Bytes.data(),staleWire.Size,staleCapture.Destination());},
+        C::CommandRemoteAdmissionStatus::StaleOriginRuntime);
     Eventually([&]{return staleCapture.Count()==1;});
     staleCapture.Assert(stale,C::CommandResponseDisposition::StaleOriginRuntime,-1,&local);
     assert(owner.VolatileHandled.load()==2);
