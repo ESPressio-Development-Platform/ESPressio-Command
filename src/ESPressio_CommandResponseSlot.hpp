@@ -47,6 +47,10 @@ private:
         auto* slot=static_cast<Slot*>(context);
         if(slot && slot->Owner) slot->Owner->Release(Handle{slot->Index});
     }
+    static void AbandonRemoteRequesterThunk(void* context,const CommandExecutionKey& key) noexcept {
+        auto* slot=static_cast<Slot*>(context);
+        if(slot && slot->Owner) slot->Owner->AbandonRemoteRequester(Handle{slot->Index},key);
+    }
     static bool TransferThunk(void* context,std::uint16_t index) noexcept {
         return static_cast<CommandResponseSlotPool*>(context)->TryTransferReady(Handle{index});
     }
@@ -62,18 +66,25 @@ private:
             auto& slot=_slots[i];
             if(slot.State!=DestinationResponseSlotState::Free) continue;
             if(reserveRetention && (!_reserveRetention || !_reserveRetention(_retentionOwner,key))) return {};
-            slot.State=DestinationResponseSlotState::ReservedForRequest;
-            slot.Role=role;
-            slot.Key=key;
-            slot.Destination=destination;
-            slot.Executor={};
-            slot.Disposition=CommandResponseDisposition::Succeeded;
-            slot.Constructed=false;
-            slot.RetentionReserved=reserveRetention;
-            slot.RetireRetentionOnAdmission=retireRetention;
+            slot.State=DestinationResponseSlotState::ReservedForRequest;slot.Role=role;slot.Key=key;slot.Destination=destination;
+            slot.Executor={};slot.Disposition=CommandResponseDisposition::Succeeded;slot.Constructed=false;
+            slot.RetentionReserved=reserveRetention;slot.RetireRetentionOnAdmission=retireRetention;
             return {static_cast<std::uint16_t>(i)};
         }
         return {};
+    }
+    void AbandonRemoteRequester(Handle handle,const CommandExecutionKey& key) noexcept {
+        bool released=false;
+        {
+            std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
+            if(!handle || handle.Index>=N) return;
+            auto& slot=_slots[handle.Index];
+            if(slot.State!=DestinationResponseSlotState::ReservedForRequest ||
+               slot.Role!=ReservationRole::RemoteRequester || slot.Key!=key) return;
+            auto* owner=slot.Owner;const auto index=slot.Index;
+            slot=Slot{};slot.Owner=owner;slot.Index=index;released=true;
+        }
+        if(released && _capacityChanged) _capacityChanged(_wakeOwner);
     }
 public:
     CommandResponseSlotPool() noexcept {
@@ -101,18 +112,21 @@ public:
         if(_retentionOwner || _reserveRetention || _abandonRetention || _persistRetention || _retireRetention) std::terminate();
         _retentionOwner=owner;_reserveRetention=reserve;_abandonRetention=abandon;_persistRetention=persist;_retireRetention=retire;
     }
-    /// Executor-side response reservation. Persistent Types reserve result-retention budget here.
     Handle TryReserve(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
         return TryReserveInternal(key,destination,ReservationRole::ExecutorResponse,_reserveRetention!=nullptr,false);
     }
-    /// Requester-side reservation used by ExecuteTo before outbound transport admission.
-    /// No executor-side result retention is reserved or retired on this node.
     Handle TryReserveRemoteRequester(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
         return TryReserveInternal(key,destination,ReservationRole::RemoteRequester,false,false);
     }
-    /// Duplicate/recovery replay of an already-retained persistent result. Successful destination admission retires it.
     Handle TryReserveRetainedReplay(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
         return TryReserveInternal(key,destination,ReservationRole::RetainedReplay,false,true);
+    }
+    Detail::CommandRequesterAbandonBinding RemoteRequesterAbandonBinding(Handle handle) noexcept {
+        std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
+        if(!handle || handle.Index>=N) return {};
+        auto& slot=_slots[handle.Index];
+        if(slot.State!=DestinationResponseSlotState::ReservedForRequest || slot.Role!=ReservationRole::RemoteRequester) return {};
+        return {&slot,&AbandonRemoteRequesterThunk};
     }
     Handle FindRemoteRequesterReserved(const CommandExecutionKey& key) const noexcept {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
@@ -139,11 +153,9 @@ public:
                 if(!_persistRetention || !payloadConstructed) return false;
                 const auto* payload=std::launder(reinterpret_cast<const TResponse*>(slot.Storage));
                 if(!_persistRetention(_retentionOwner,slot.Key,executor,*payload)) return false;
-                slot.RetentionReserved=false;
-                slot.RetireRetentionOnAdmission=true;
+                slot.RetentionReserved=false;slot.RetireRetentionOnAdmission=true;
             }else{
-                _abandonRetention(_retentionOwner,slot.Key);
-                slot.RetentionReserved=false;
+                _abandonRetention(_retentionOwner,slot.Key);slot.RetentionReserved=false;
                 if(_capacityChanged) _capacityChanged(_wakeOwner);
             }
         }
@@ -156,12 +168,9 @@ public:
         return {this,handle.Index,&TransferThunk,&AbandonThunk};
     }
     bool TryTransferReady(Handle handle) noexcept {
-        Detail::CommandResponseDestination destination{};
-        CommandExecutionKey key{};
-        System::DeviceRuntimeIdentity executor{};
-        CommandResponseDisposition disposition=CommandResponseDisposition::Succeeded;
-        bool retireRetention=false;
-        CommandResponsePayloadLease lease;
+        Detail::CommandResponseDestination destination{};CommandExecutionKey key{};
+        System::DeviceRuntimeIdentity executor{};CommandResponseDisposition disposition=CommandResponseDisposition::Succeeded;
+        bool retireRetention=false;CommandResponsePayloadLease lease;
         {
             std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
             if(!handle || handle.Index>=N) return false;
@@ -181,8 +190,7 @@ public:
         return accepted;
     }
     void Release(Handle handle) noexcept {
-        bool released=false,abandonRetention=false;
-        CommandExecutionKey key{};
+        bool released=false,abandonRetention=false;CommandExecutionKey key{};
         {
             std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
             if(!handle || handle.Index>=N) return;

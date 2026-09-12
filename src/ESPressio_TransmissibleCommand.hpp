@@ -21,5 +21,13 @@ public:
         }
         return true;
     }
+    template<class... Args,class R=TResponse,std::enable_if_t<std::is_same_v<R,NoCommandResponse>,int> =0>
+    static CommandSubmissionResult ExecuteTo(System::DeviceIdentifier target,Args&&... args) {
+        return CommandTypeRuntime<TDerived>::Get().template SubmitRemoteNoResponse<true>(target,std::forward<Args>(args)...);
+    }
+    template<class... Args,class R=TResponse,std::enable_if_t<std::is_same_v<R,NoCommandResponse>,int> =0>
+    static CommandSubmissionResult TryExecuteTo(System::DeviceIdentifier target,Args&&... args) {
+        return CommandTypeRuntime<TDerived>::Get().template SubmitRemoteNoResponse<false>(target,std::forward<Args>(args)...);
+    }
 };
 }

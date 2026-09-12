@@ -17,6 +17,11 @@ std::uint32_t ResponseCapability<N>::RemainingWaitMillisecondsThunk(const void* 
     return static_cast<const ResponseCapability*>(context)->RemainingWaitMilliseconds(index,generation);
 }
 template<std::size_t N>
+bool ResponseCapability<N>::BindAbandonThunk(void* context,std::uint16_t index,std::uint64_t generation,
+                                             Detail::CommandRequesterAbandonBinding binding) noexcept {
+    return static_cast<ResponseCapability*>(context)->BindAbandon(index,generation,binding);
+}
+template<std::size_t N>
 bool ResponseCapability<N>::AcceptResponseThunk(void* context,std::uint16_t index,std::uint64_t generation,const CommandExecutionKey& key,
                                                 const System::DeviceRuntimeIdentity& executor,CommandResponseDisposition disposition,
                                                 CommandResponsePayloadLease&& payload) noexcept {
@@ -55,15 +60,23 @@ void ResponseCapability<N>::RollbackInitialization() noexcept {
 }
 template<std::size_t N>
 void ResponseCapability<N>::Quiesce(const Threads::ThreadCycleContext&) noexcept {
-    std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
-    _accepting=false;
-    for(auto& slot:_slots){
-        slot.Payload.Reset();
-        slot.State=ResponseCapabilitySlotState::Free;slot.Key={};slot.Deadline=0;
-        slot.CallbackOwner=nullptr;slot.Callback=nullptr;slot.Executor={};
+    std::array<AbandonAction,N> abandons{};
+    std::array<CommandResponsePayloadLease,N> releases{};
+    {
+        std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
+        _accepting=false;
+        std::size_t index=0;
+        for(auto& slot:_slots){
+            abandons[index]=DetachAbandonLocked(slot);
+            releases[index]=std::move(slot.Payload);
+            slot.State=ResponseCapabilitySlotState::Free;slot.Key={};slot.Deadline=0;
+            slot.CallbackOwner=nullptr;slot.Callback=nullptr;slot.Executor={};
+            ++index;
+        }
+        _readyHead=0;_readyCountLocked=0;_ready.fill({});
+        _readyCount=0;_liveCount=0;_earliestDeadline=NoDeadline;
     }
-    _readyHead=0;_readyCountLocked=0;_ready.fill({});
-    _readyCount=0;_liveCount=0;_earliestDeadline=NoDeadline;
+    for(const auto& action:abandons) action.Run();
 }
 template<std::size_t N>
 Threads::CapabilityReadiness ResponseCapability<N>::Readiness(const Threads::ThreadCycleContext& context) const noexcept {
@@ -82,9 +95,10 @@ void ResponseCapability<N>::Service(const Threads::ThreadCycleContext& context) 
     void* owner=nullptr;
     Detail::CommandCompletionErased completion{};
     CommandResponsePayloadLease payload;
+    AbandonAction abandon{};
     {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
-        if(!_readyCountLocked) (void)TryExpireOneLocked(context.Now);
+        if(!_readyCountLocked) (void)TryExpireOneLocked(context.Now,abandon);
         if(!_readyCountLocked) return;
         const auto entry=_ready[_readyHead];
         _ready[_readyHead]={};_readyHead=(_readyHead+1)%N;--_readyCountLocked;
@@ -97,12 +111,12 @@ void ResponseCapability<N>::Service(const Threads::ThreadCycleContext& context) 
         completion.Handle=CommandRequestHandle(this,entry.Index,slot.Generation,slot.Key);
         completion.Kind=slot.CompletionKind;completion.Executor=slot.Executor;completion.Disposition=slot.Disposition;
         completion.Response=slot.Payload.Payload();payload=std::move(slot.Payload);
-        // TH16 releases route/FIFO/lifecycle capacity before application OnResult.
         slot.State=ResponseCapabilitySlotState::Free;slot.Key={};slot.Deadline=0;
-        slot.CallbackOwner=nullptr;slot.Callback=nullptr;slot.Executor={};
-        _liveCount.fetch_sub(1,std::memory_order_acq_rel);
-        RecomputeEarliestLocked();
+        slot.CallbackOwner=nullptr;slot.Callback=nullptr;slot.AbandonContext=nullptr;slot.Abandon=nullptr;slot.Executor={};
+        _liveCount.fetch_sub(1,std::memory_order_acq_rel);RecomputeEarliestLocked();
     }
+    // External destination capacity is returned before application OnResult can re-enter submission.
+    abandon.Run();
     if(callback) callback(owner,completion);
 }
 } // namespace ESPressio::Command

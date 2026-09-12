@@ -102,6 +102,10 @@ public:
     CommandClientSubmissionResult Execute(std::chrono::duration<Rep,Period>,Args&&...);
     template<class TCommand,auto TCallback,class Rep,class Period,class... Args>
     CommandClientSubmissionResult TryExecute(std::chrono::duration<Rep,Period>,Args&&...);
+    template<class TCommand,auto TCallback,class Rep,class Period,class... Args>
+    CommandClientSubmissionResult ExecuteTo(System::DeviceIdentifier,std::chrono::duration<Rep,Period>,Args&&...);
+    template<class TCommand,auto TCallback,class Rep,class Period,class... Args>
+    CommandClientSubmissionResult TryExecuteTo(System::DeviceIdentifier,std::chrono::duration<Rep,Period>,Args&&...);
 };
 
 namespace Detail {

@@ -44,16 +44,10 @@ struct CommandTypeDescriptor final {
     CommandRuntimeStatus (*Shutdown)() noexcept = nullptr;
     CommandRuntimeStatus (*RollbackInitialization)() noexcept = nullptr;
     CommandRemoteAdmissionResult (*AdmitRemoteRequest)(
-        CommandPayloadFormat,
-        const CommandRequestWireHeader&,
-        const std::uint8_t*,
-        std::size_t,
+        CommandPayloadFormat,const CommandRequestWireHeader&,const std::uint8_t*,std::size_t,
         CommandRemoteResponseDestination) noexcept = nullptr;
     CommandRemoteAdmissionResult (*AdmitRemoteResponse)(
-        CommandPayloadFormat,
-        const CommandResponseWireHeader&,
-        const std::uint8_t*,
-        std::size_t) noexcept = nullptr;
+        CommandPayloadFormat,const CommandResponseWireHeader&,const std::uint8_t*,std::size_t) noexcept = nullptr;
     const Serializable::StaticSchemaDescriptor* RequestSchema = nullptr;
     const Serializable::StaticSchemaDescriptor* ResponseSchema = nullptr;
     const Primitive::PrimitivePolicyDescriptor* RequestDeliveryPolicy = nullptr;
@@ -66,8 +60,7 @@ struct CommandTypeDescriptor final {
     CommandTypeResourceProfile Resources{};
 };
 
-inline const CommandTypeDescriptor* GetCommandTypeDescriptor(
-    const Primitive::PrimitiveTypeDescriptor& common) noexcept {
+inline const CommandTypeDescriptor* GetCommandTypeDescriptor(const Primitive::PrimitiveTypeDescriptor& common) noexcept {
     if (common.Key.Family != CommandFamilyId || !common.FamilyExtension.Data) return nullptr;
     auto* extension = static_cast<const CommandTypeDescriptor*>(common.FamilyExtension.Data);
     return extension->TypeId.Value() == common.Key.TypeValue ? extension : nullptr;
@@ -79,9 +72,8 @@ template<class T> struct CommandDescriptorProvider final {
         static const CommandTypeDescriptor extension = [] {
             CommandTypeDescriptor value{};
             value.TypeId = T::TypeId;
-            value.Tier = T::IsTransmissibleCommand
-                ? CommandTier::Transmissible
-                : (T::IsSerializableCommand ? CommandTier::Serializable : CommandTier::Local);
+            value.Tier = T::IsTransmissibleCommand ? CommandTier::Transmissible :
+                (T::IsSerializableCommand ? CommandTier::Serializable : CommandTier::Local);
             value.MaximumLiveInstances = T::MaximumLiveInstances;
             value.MaximumPendingExecutions = T::MaximumPendingExecutions;
             value.MaximumPendingResponses = Detail::ResponseCapacity<T>::value;
@@ -97,13 +89,14 @@ template<class T> struct CommandDescriptorProvider final {
             value.Initialize = [](Task::TaskExecutionConfiguration config, const std::atomic<bool>* running) {
                 return CommandTypeRuntime<T>::Get().Initialize(config, nullptr, running);
             };
-            value.ValidateStart = []() noexcept { return CommandTypeRuntime<T>::Get().ValidateStart(); };
+            value.ValidateStart = []() noexcept {
+                auto& runtime=CommandTypeRuntime<T>::Get();
+                return runtime.ValidateStart() && runtime.ValidateTransport();
+            };
             value.StartValidated = []() noexcept { CommandTypeRuntime<T>::Get().StartValidated(); };
             value.CloseAdmissions = []() noexcept { CommandTypeRuntime<T>::Get().CloseAdmissions(); };
             value.Shutdown = []() noexcept { return CommandTypeRuntime<T>::Get().Shutdown(); };
-            value.RollbackInitialization = []() noexcept {
-                return CommandTypeRuntime<T>::Get().RollbackInitialization();
-            };
+            value.RollbackInitialization = []() noexcept { return CommandTypeRuntime<T>::Get().RollbackInitialization(); };
             value.Policies = DescribeCommandPolicies<T>();
 
             if constexpr (T::IsSerializableCommand) {
@@ -113,19 +106,15 @@ template<class T> struct CommandDescriptorProvider final {
             }
             if constexpr (T::IsTransmissibleCommand) {
                 static_assert(T::ValidateTier());
-                static const auto requestPolicy =
-                    Primitive::PrimitivePolicyContract<typename T::RequestDeliveryPolicy>::Descriptor();
+                static const auto requestPolicy = Primitive::PrimitivePolicyContract<typename T::RequestDeliveryPolicy>::Descriptor();
                 value.RequestDeliveryPolicy = &requestPolicy;
                 value.MaximumRequestWireBytes = {
                     MaximumCompleteRequestWireBytes<T, Serializable::DirectBinary>,
                     MaximumCompleteRequestWireBytes<T, Serializable::CBOR>,
                     MaximumCompleteRequestWireBytes<T, Serializable::JSON>};
                 value.AdmitRemoteRequest=[](
-                    CommandPayloadFormat format,
-                    const CommandRequestWireHeader& header,
-                    const std::uint8_t* payload,
-                    std::size_t size,
-                    CommandRemoteResponseDestination destination) noexcept {
+                    CommandPayloadFormat format,const CommandRequestWireHeader& header,
+                    const std::uint8_t* payload,std::size_t size,CommandRemoteResponseDestination destination) noexcept {
                     switch(format){
                         case CommandPayloadFormat::DirectBinary:
                             return CommandTypeRuntime<T>::Get().template TryAdmitRemoteRequest<Serializable::DirectBinary>(header,payload,size,destination);
@@ -136,10 +125,8 @@ template<class T> struct CommandDescriptorProvider final {
                     }
                     return CommandRemoteAdmissionResult{CommandRemoteAdmissionStatus::Invalid};
                 };
-
                 if constexpr (!std::is_same_v<typename T::ResponseType, NoCommandResponse>) {
-                    static const auto responsePolicy =
-                        Primitive::PrimitivePolicyContract<typename T::ResponseDeliveryPolicy>::Descriptor();
+                    static const auto responsePolicy = Primitive::PrimitivePolicyContract<typename T::ResponseDeliveryPolicy>::Descriptor();
                     value.ResponseDeliveryPolicy = &responsePolicy;
                     value.ResponseSchema = &Serializable::SchemaDescriptor<typename T::ResponseType>();
                     value.MaximumResponseWireBytes = {
@@ -147,10 +134,8 @@ template<class T> struct CommandDescriptorProvider final {
                         MaximumCompleteResponseWireBytes<T, Serializable::CBOR>,
                         MaximumCompleteResponseWireBytes<T, Serializable::JSON>};
                     value.AdmitRemoteResponse=[](
-                        CommandPayloadFormat format,
-                        const CommandResponseWireHeader& header,
-                        const std::uint8_t* payload,
-                        std::size_t size) noexcept {
+                        CommandPayloadFormat format,const CommandResponseWireHeader& header,
+                        const std::uint8_t* payload,std::size_t size) noexcept {
                         switch(format){
                             case CommandPayloadFormat::DirectBinary:
                                 return CommandTypeRuntime<T>::Get().template TryAdmitRemoteResponse<Serializable::DirectBinary>(header,payload,size);
@@ -172,20 +157,12 @@ template<class T> struct CommandDescriptorProvider final {
                 }
             }
 
-            std::size_t requestMaximum = 0;
-            std::size_t responseMaximum = 0;
+            std::size_t requestMaximum = 0,responseMaximum = 0;
             for (auto bytes : value.MaximumRequestWireBytes) if (bytes > requestMaximum) requestMaximum = bytes;
             for (auto bytes : value.MaximumResponseWireBytes) if (bytes > responseMaximum) responseMaximum = bytes;
-            value.Resources = {
-                sizeof(CommandTypeRuntime<T>),
-                sizeof(CommandRequestPool<T>),
-                CommandRequestPool<T>::SlotBytes,
-                T::MaximumLiveInstances,
-                T::MaximumPendingExecutions,
-                Detail::ExecutionLaneCount<T>(),
-                Detail::ResponseCapacity<T>::value,
-                requestMaximum,
-                responseMaximum};
+            value.Resources = {sizeof(CommandTypeRuntime<T>),sizeof(CommandRequestPool<T>),CommandRequestPool<T>::SlotBytes,
+                T::MaximumLiveInstances,T::MaximumPendingExecutions,Detail::ExecutionLaneCount<T>(),
+                Detail::ResponseCapacity<T>::value,requestMaximum,responseMaximum};
             return value;
         }();
 
@@ -195,10 +172,8 @@ template<class T> struct CommandDescriptorProvider final {
 
         Primitive::ContractFingerprintBuilder fingerprint;
         fingerprint.Text("ESPressio.Command.Contract.v1");
-        fingerprint.Integer(CommandFamilyId);
-        fingerprint.Integer(T::TypeId.Value());
-        fingerprint.Byte(static_cast<std::uint8_t>(extension.Tier));
-        fingerprint.Integer(CommandProtocolVersion);
+        fingerprint.Integer(CommandFamilyId);fingerprint.Integer(T::TypeId.Value());
+        fingerprint.Byte(static_cast<std::uint8_t>(extension.Tier));fingerprint.Integer(CommandProtocolVersion);
         for (auto byte : extension.Policies.CanonicalBytes()) fingerprint.Byte(byte);
         if constexpr (T::IsSerializableCommand) Serializable::WriteCanonicalSchema<T>(fingerprint);
         if constexpr (T::IsTransmissibleCommand) {
@@ -211,16 +186,9 @@ template<class T> struct CommandDescriptorProvider final {
             }
         }
 
-        return {
-            {CommandFamilyId, T::TypeId.Value()},
-            T::CanonicalName,
-            Primitive::PrimitiveTypeCapabilities{
-                T::IsTransmissibleCommand ? std::uint8_t{3}
-                                          : (T::IsSerializableCommand ? std::uint8_t{1} : std::uint8_t{0})},
-            {1, 1},
-            fingerprint.Finish(),
-            {maximumWireBytes},
-            {&extension}};
+        return {{CommandFamilyId,T::TypeId.Value()},T::CanonicalName,
+            Primitive::PrimitiveTypeCapabilities{T::IsTransmissibleCommand?std::uint8_t{3}:(T::IsSerializableCommand?std::uint8_t{1}:std::uint8_t{0})},
+            {1,1},fingerprint.Finish(),{maximumWireBytes},{&extension}};
     }
 };
 }

@@ -20,6 +20,7 @@
 #include "ESPressio_CommandResponseRouter.hpp"
 #include "ESPressio_CommandResponseSlot.hpp"
 #include "ESPressio_CommandWireV1.hpp"
+#include "ESPressio_CommandOutboundBinding.hpp"
 
 namespace ESPressio::Command {
 namespace Detail {
@@ -68,6 +69,7 @@ template<class T> class CommandTypeRuntime final {
     ResponsePool _responses{};
     LedgerStorage _ledger{};
     CommandHandlerBinding<T> _handler;
+    Detail::CommandOutboundBindingView<T> _outbound{};
     System::Synchronization::Mutex _admission;
     std::unique_ptr<System::Synchronization::ISignal> _capacityChanged;
     std::atomic<Phase> _phase{Phase::Uninitialized};
@@ -97,6 +99,7 @@ template<class T> class CommandTypeRuntime final {
     }
     static Timing::QualifiedTime CaptureSystemTime();
     static CommandSubmissionStatus MapLedgerStatus(CommandRemoteAdmissionStatus) noexcept;
+    static CommandSubmissionStatus MapOutboundStatus(CommandOutboundAdmissionStatus) noexcept;
     void Wake() noexcept;
     std::size_t LaneIndex(const Task::IdleWorkerTask<WorkItem>*) const noexcept;
     bool TryIssue(CommandId&) noexcept;
@@ -106,8 +109,12 @@ template<class T> class CommandTypeRuntime final {
     template<bool Blocking,class... Args> CommandSubmissionResult SubmitNoResponse(Args&&...);
     CommandRuntimeStatus BindResponseRouter(CommandResponseRouterBinding) noexcept;
     CommandRuntimeStatus BindPersistence(CommandPersistenceBinding) noexcept;
+    CommandRuntimeStatus BindTransport(Detail::CommandOutboundBindingView<T>) noexcept;
     bool HasPersistence() const noexcept;
+    bool HasTransport() const noexcept;
+    bool ValidateTransport() noexcept;
     template<class> friend struct CommandDescriptorProvider;
+    friend class Runtime;
 public:
     static CommandTypeRuntime& Get() noexcept;
     CommandTypeRuntime(const CommandTypeRuntime&)=delete;CommandTypeRuntime& operator=(const CommandTypeRuntime&)=delete;
@@ -117,17 +124,14 @@ public:
     CommandRuntimeStatus Shutdown() noexcept;CommandRuntimeStatus RollbackInitialization() noexcept;
     template<bool Blocking,class... Args> CommandSubmissionResult SubmitLocal(Args&&...);
     template<bool Blocking,class... Args> CommandSubmissionResult SubmitLocalResponse(const Detail::CommandRequesterRoute&,Args&&...);
+    template<bool Blocking,class... Args> CommandSubmissionResult SubmitRemoteNoResponse(System::DeviceIdentifier,Args&&...);
+    template<bool Blocking,class... Args> CommandSubmissionResult SubmitRemoteResponse(const Detail::CommandRequesterRoute&,System::DeviceIdentifier,Args&&...);
     template<class Format>
     CommandRemoteAdmissionResult TryAdmitRemoteRequest(
-        const CommandRequestWireHeader&,
-        const std::uint8_t*,
-        std::size_t,
-        CommandRemoteResponseDestination={}) noexcept;
+        const CommandRequestWireHeader&,const std::uint8_t*,std::size_t,CommandRemoteResponseDestination={}) noexcept;
     template<class Format>
     CommandRemoteAdmissionResult TryAdmitRemoteResponse(
-        const CommandResponseWireHeader&,
-        const std::uint8_t*,
-        std::size_t) noexcept;
+        const CommandResponseWireHeader&,const std::uint8_t*,std::size_t) noexcept;
     static constexpr std::size_t ExecutionLanes=LaneCount;
     std::size_t LiveRequests() const noexcept;std::size_t PendingRequests() const noexcept;std::uint32_t CommandIdHighWater() noexcept;
     const CommandHandlerBinding<T>& Handler() const noexcept;ResponsePool& Responses() noexcept;
@@ -135,3 +139,4 @@ public:
 }
 #include "detail/ESPressio_CommandTypeRuntime_Impl.hpp"
 #include "detail/ESPressio_CommandTypeRuntime_Remote.hpp"
+#include "detail/ESPressio_CommandTypeRuntime_Outbound.hpp"

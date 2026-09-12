@@ -16,7 +16,6 @@ inline constexpr std::size_t CommandResponseWireHeaderSize = 62;
 
 struct NoCommandResponse final {};
 
-/// <summary>Non-zero per-Type/per-origin-runtime execution sequence. Values never wrap or recycle.</summary>
 class CommandId final {
     std::uint32_t _value{};
 public:
@@ -30,7 +29,6 @@ public:
 };
 static_assert(sizeof(CommandId)==4,"CommandId must be exactly four bytes");
 
-/// <summary>Exact semantic identity of one Command execution; no route or transport address participates.</summary>
 struct CommandExecutionKey final {
     CommandTypeId TypeId{};
     System::DeviceIdentifier OriginDevice{};
@@ -43,7 +41,6 @@ struct CommandExecutionKey final {
     constexpr bool operator!=(const CommandExecutionKey& other) const noexcept { return !(*this==other); }
 };
 
-/// <summary>Stable V1 framework dispositions. Business failure remains a typed response concern.</summary>
 enum class CommandResponseDisposition : std::uint8_t {
     Succeeded=0, HandlerFailed=1, IndeterminateAfterRestart=2,
     AlreadyExecutedResultExpired=3, ExecutionHistoryExpired=4, StaleOriginRuntime=5
@@ -55,7 +52,8 @@ constexpr bool IsValidCommandResponseDisposition(CommandResponseDisposition valu
 enum class CommandSubmissionStatus : std::uint8_t {
     Accepted, NotInitialized, Stopping, CapacityUnavailable, ResponseCapacityUnavailable,
     IdentityUnavailable, IdentifierExhausted, HandlerUnavailable, PersistenceUnavailable,
-    LedgerCapacityUnavailable, SchemaOrDecodeFailure, InvalidRequest, Discarded
+    LedgerCapacityUnavailable, SchemaOrDecodeFailure, InvalidRequest, InvalidTarget,
+    TransportUnavailable, Discarded
 };
 struct CommandSubmissionResult final {
     CommandSubmissionStatus Status=CommandSubmissionStatus::NotInitialized;
@@ -89,13 +87,11 @@ enum class CommandCallerCompletionKind : std::uint8_t {
     Response, RequestDeliveryFailed, ResponseTimedOut
 };
 
-/// <summary>Immutable family-owned occurrence facts bound by the Type runtime before admission becomes visible.</summary>
 struct CommandRequestFacts final {
     CommandExecutionKey Key{};
     Timing::QualifiedTime OriginRequestTime{};
 };
 
-/// <summary>Handler-visible semantic context. Route tokens, packets and callbacks are deliberately absent.</summary>
 class CommandExecutionContext final {
     CommandExecutionKey _key{};
     Timing::QualifiedTime _originTime{};

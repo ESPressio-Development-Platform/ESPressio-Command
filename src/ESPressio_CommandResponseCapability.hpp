@@ -20,12 +20,21 @@ template<std::size_t N> class ResponseCapability final {
         std::uint64_t Deadline=0;
         void* CallbackOwner=nullptr;
         Detail::CommandCompletionThunk Callback=nullptr;
+        void* AbandonContext=nullptr;
+        void (*Abandon)(void*,const CommandExecutionKey&) noexcept=nullptr;
         CommandCallerCompletionKind CompletionKind=CommandCallerCompletionKind::ResponseTimedOut;
         System::DeviceRuntimeIdentity Executor{};
         CommandResponseDisposition Disposition=CommandResponseDisposition::Succeeded;
         CommandResponsePayloadLease Payload{};
     };
     struct ReadyEntry final { std::uint16_t Index=UINT16_MAX;std::uint64_t Generation=0; };
+    struct AbandonAction final {
+        void* Context=nullptr;
+        void (*Invoke)(void*,const CommandExecutionKey&) noexcept=nullptr;
+        CommandExecutionKey Key{};
+        explicit operator bool() const noexcept { return Context && Invoke && Key.IsValid(); }
+        void Run() const noexcept { if(*this) Invoke(Context,Key); }
+    };
     std::array<Slot,N> _slots{};
     std::array<ReadyEntry,N> _ready{};
     mutable System::Synchronization::Mutex _mutex;
@@ -40,11 +49,13 @@ template<std::size_t N> class ResponseCapability final {
     void PushReadyLocked(std::uint16_t,std::uint64_t) noexcept;
     bool RemoveReadyLocked(std::uint16_t,std::uint64_t) noexcept;
     bool MarkTerminalLocked(Slot&,std::uint16_t,CommandCallerCompletionKind) noexcept;
-    bool TryExpireOneLocked(std::uint64_t) noexcept;
+    AbandonAction DetachAbandonLocked(Slot&) noexcept;
+    bool TryExpireOneLocked(std::uint64_t,AbandonAction&) noexcept;
     bool BindKey(std::uint16_t,std::uint64_t,const CommandExecutionKey&) noexcept;
     CommandExecutionKey ReadKey(std::uint16_t,std::uint64_t) const noexcept;
     bool CanHandoff(std::uint16_t,std::uint64_t) const noexcept;
     std::uint32_t RemainingWaitMilliseconds(std::uint16_t,std::uint64_t) const noexcept;
+    bool BindAbandon(std::uint16_t,std::uint64_t,Detail::CommandRequesterAbandonBinding) noexcept;
     bool AcceptResponse(std::uint16_t,std::uint64_t,const CommandExecutionKey&,const System::DeviceRuntimeIdentity&,
                         CommandResponseDisposition,CommandResponsePayloadLease&&) noexcept;
     bool PublishDeliveryFailure(std::uint16_t,std::uint64_t,const CommandExecutionKey&) noexcept;
@@ -56,6 +67,7 @@ template<std::size_t N> class ResponseCapability final {
     static CommandExecutionKey ReadKeyThunk(const void*,std::uint16_t,std::uint64_t) noexcept;
     static bool CanHandoffThunk(const void*,std::uint16_t,std::uint64_t) noexcept;
     static std::uint32_t RemainingWaitMillisecondsThunk(const void*,std::uint16_t,std::uint64_t) noexcept;
+    static bool BindAbandonThunk(void*,std::uint16_t,std::uint64_t,Detail::CommandRequesterAbandonBinding) noexcept;
     static bool AcceptResponseThunk(void*,std::uint16_t,std::uint64_t,const CommandExecutionKey&,
                                     const System::DeviceRuntimeIdentity&,CommandResponseDisposition,CommandResponsePayloadLease&&) noexcept;
     static bool DeliveryFailureThunk(void*,std::uint16_t,std::uint64_t,const CommandExecutionKey&) noexcept;

@@ -45,17 +45,27 @@ bool ResponseCapability<N>::MarkTerminalLocked(Slot& slot,std::uint16_t index,Co
 }
 
 template<std::size_t N>
-bool ResponseCapability<N>::TryExpireOneLocked(std::uint64_t now) noexcept {
+typename ResponseCapability<N>::AbandonAction ResponseCapability<N>::DetachAbandonLocked(Slot& slot) noexcept {
+    AbandonAction action{slot.AbandonContext,slot.Abandon,slot.Key};
+    slot.AbandonContext=nullptr;slot.Abandon=nullptr;
+    return action;
+}
+
+template<std::size_t N>
+bool ResponseCapability<N>::TryExpireOneLocked(std::uint64_t now,AbandonAction& abandon) noexcept {
     std::size_t selected=N;
     std::uint64_t deadline=NoDeadline;
     for(std::size_t i=0;i<N;++i){
         const auto& slot=_slots[i];
         if(slot.State==ResponseCapabilitySlotState::Outstanding && slot.Deadline<=now && slot.Deadline<deadline){
-            selected=i;
-            deadline=slot.Deadline;
+            selected=i;deadline=slot.Deadline;
         }
     }
-    return selected<N && MarkTerminalLocked(_slots[selected],static_cast<std::uint16_t>(selected),CommandCallerCompletionKind::ResponseTimedOut);
+    if(selected>=N) return false;
+    auto& slot=_slots[selected];
+    if(!MarkTerminalLocked(slot,static_cast<std::uint16_t>(selected),CommandCallerCompletionKind::ResponseTimedOut)) return false;
+    abandon=DetachAbandonLocked(slot);
+    return true;
 }
 
 template<std::size_t N>
@@ -98,6 +108,17 @@ std::uint32_t ResponseCapability<N>::RemainingWaitMilliseconds(std::uint16_t ind
 }
 
 template<std::size_t N>
+bool ResponseCapability<N>::BindAbandon(std::uint16_t index,std::uint64_t generation,Detail::CommandRequesterAbandonBinding binding) noexcept {
+    if(index>=N || !binding) return false;
+    std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
+    auto& slot=_slots[index];
+    if(slot.State!=ResponseCapabilitySlotState::Outstanding || slot.Generation!=generation ||
+       !slot.Key.IsValid() || slot.AbandonContext || slot.Abandon) return false;
+    slot.AbandonContext=binding.Context;slot.Abandon=binding.Abandon;
+    return true;
+}
+
+template<std::size_t N>
 bool ResponseCapability<N>::AcceptResponse(std::uint16_t index,std::uint64_t generation,const CommandExecutionKey& key,
                                            const System::DeviceRuntimeIdentity& executor,CommandResponseDisposition disposition,
                                            CommandResponsePayloadLease&& payload) noexcept {
@@ -110,9 +131,8 @@ bool ResponseCapability<N>::AcceptResponse(std::uint16_t index,std::uint64_t gen
         if(slot.State!=ResponseCapabilitySlotState::Outstanding || slot.Generation!=generation || slot.Key!=key || now>=slot.Deadline) return false;
         if(disposition==CommandResponseDisposition::Succeeded && payload.Payload()==nullptr) return false;
         if(disposition!=CommandResponseDisposition::Succeeded && payload.Payload()!=nullptr) return false;
-        slot.Executor=executor;
-        slot.Disposition=disposition;
-        slot.Payload=std::move(payload);
+        slot.Executor=executor;slot.Disposition=disposition;slot.Payload=std::move(payload);
+        (void)DetachAbandonLocked(slot); // Payload lease now owns the destination Type response slot.
         wake=MarkTerminalLocked(slot,index,CommandCallerCompletionKind::Response);
     }
     if(wake) (void)_host.Wake();
@@ -122,13 +142,15 @@ bool ResponseCapability<N>::AcceptResponse(std::uint16_t index,std::uint64_t gen
 template<std::size_t N>
 bool ResponseCapability<N>::PublishDeliveryFailure(std::uint16_t index,std::uint64_t generation,const CommandExecutionKey& key) noexcept {
     if(index>=N || !key.IsValid()) return false;
-    bool wake=false;
+    bool wake=false;AbandonAction abandon{};
     {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
         auto& slot=_slots[index];
         if(slot.State!=ResponseCapabilitySlotState::Outstanding || slot.Generation!=generation || slot.Key!=key || _host.Now()>=slot.Deadline) return false;
         wake=MarkTerminalLocked(slot,index,CommandCallerCompletionKind::RequestDeliveryFailed);
+        if(wake) abandon=DetachAbandonLocked(slot);
     }
+    abandon.Run();
     if(wake) (void)_host.Wake();
     return wake;
 }
@@ -136,19 +158,19 @@ bool ResponseCapability<N>::PublishDeliveryFailure(std::uint16_t index,std::uint
 template<std::size_t N>
 bool ResponseCapability<N>::CancelInternal(std::uint16_t index,std::uint64_t generation,const CommandExecutionKey* key) noexcept {
     if(index>=N) return false;
-    CommandResponsePayloadLease release;
+    CommandResponsePayloadLease release;AbandonAction abandon{};
     {
         std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
         auto& slot=_slots[index];
         if(slot.Generation!=generation || slot.State==ResponseCapabilitySlotState::Free || slot.State==ResponseCapabilitySlotState::Servicing) return false;
         if(key && key->IsValid() && slot.Key!=*key) return false;
         if(slot.State==ResponseCapabilitySlotState::Ready && !RemoveReadyLocked(index,generation)) return false;
-        release=std::move(slot.Payload);
-        slot.State=ResponseCapabilitySlotState::Free;
-        slot.Key={};slot.Deadline=0;slot.CallbackOwner=nullptr;slot.Callback=nullptr;slot.Executor={};
-        _liveCount.fetch_sub(1,std::memory_order_acq_rel);
-        RecomputeEarliestLocked();
+        abandon=DetachAbandonLocked(slot);release=std::move(slot.Payload);
+        slot.State=ResponseCapabilitySlotState::Free;slot.Key={};slot.Deadline=0;
+        slot.CallbackOwner=nullptr;slot.Callback=nullptr;slot.Executor={};
+        _liveCount.fetch_sub(1,std::memory_order_acq_rel);RecomputeEarliestLocked();
     }
+    abandon.Run();
     return true;
 }
 
@@ -178,15 +200,15 @@ Detail::CommandRequesterReservation ResponseCapability<N>::ReserveRaw(void* owne
     for(std::size_t i=0;i<N;++i){
         auto& slot=_slots[i];
         if(slot.State!=ResponseCapabilitySlotState::Free || slot.Generation==NoDeadline) continue;
-        ++slot.Generation;
-        slot.State=ResponseCapabilitySlotState::Outstanding;
+        ++slot.Generation;slot.State=ResponseCapabilitySlotState::Outstanding;
         slot.Key={};slot.Deadline=now+timeout;slot.CallbackOwner=owner;slot.Callback=callback;
+        slot.AbandonContext=nullptr;slot.Abandon=nullptr;
         slot.CompletionKind=CommandCallerCompletionKind::ResponseTimedOut;slot.Executor={};slot.Disposition=CommandResponseDisposition::Succeeded;
         _liveCount.fetch_add(1,std::memory_order_acq_rel);
         if(slot.Deadline<_earliestDeadline.load(std::memory_order_relaxed)) _earliestDeadline.store(slot.Deadline,std::memory_order_release);
         const auto index=static_cast<std::uint16_t>(i);
         Detail::CommandRequesterRoute route{this,index,slot.Generation,&BindKeyThunk,&ReadKeyThunk,&CanHandoffThunk,
-                                            &RemainingWaitMillisecondsThunk,&AcceptResponseThunk,&DeliveryFailureThunk,&CancelThunk};
+                                            &RemainingWaitMillisecondsThunk,&BindAbandonThunk,&AcceptResponseThunk,&DeliveryFailureThunk,&CancelThunk};
         return {route,this,index,slot.Generation};
     }
     return {};

@@ -43,9 +43,6 @@ public:
 };
 
 /// <summary>Adapter-neutral, pre-reserved destination for one exact remote requester.</summary>
-/// <remarks>The Index/Generation pair is opaque family-private route state supplied by the binding adapter.
-/// Accepted means the adapter has synchronously taken bounded ownership of the semantic response; Command owns
-/// no route, packet, retry worker, Radio address or Mesh state.</remarks>
 struct CommandRemoteResponseDestination final {
     void* Context=nullptr;
     std::uint16_t Index=UINT16_MAX;
@@ -65,6 +62,14 @@ static_assert(std::is_trivially_copyable_v<CommandRemoteResponseDestination>);
 
 namespace Detail {
 
+/// <summary>Fixed release callback attached to one TH16 requester expectation.</summary>
+struct CommandRequesterAbandonBinding final {
+    void* Context=nullptr;
+    void (*Abandon)(void*,const CommandExecutionKey&) noexcept=nullptr;
+    constexpr explicit operator bool() const noexcept { return Context && Abandon; }
+};
+static_assert(std::is_trivially_copyable_v<CommandRequesterAbandonBinding>);
+
 /// <summary>Allocation-free live requester route backed by one ResponseCapability lifecycle slot.</summary>
 struct CommandRequesterRoute final {
     void* Context=nullptr;
@@ -74,13 +79,15 @@ struct CommandRequesterRoute final {
     CommandExecutionKey (*ReadKey)(const void*,std::uint16_t,std::uint64_t) noexcept=nullptr;
     bool (*CanHandoff)(const void*,std::uint16_t,std::uint64_t) noexcept=nullptr;
     std::uint32_t (*RemainingWaitMilliseconds)(const void*,std::uint16_t,std::uint64_t) noexcept=nullptr;
+    bool (*BindAbandon)(void*,std::uint16_t,std::uint64_t,CommandRequesterAbandonBinding) noexcept=nullptr;
     bool (*AcceptResponse)(void*,std::uint16_t,std::uint64_t,const CommandExecutionKey&,
                            const System::DeviceRuntimeIdentity&,CommandResponseDisposition,
                            CommandResponsePayloadLease&&) noexcept=nullptr;
     bool (*PublishDeliveryFailure)(void*,std::uint16_t,std::uint64_t,const CommandExecutionKey&) noexcept=nullptr;
     bool (*Cancel)(void*,std::uint16_t,std::uint64_t,const CommandExecutionKey*) noexcept=nullptr;
     constexpr explicit operator bool() const noexcept {
-        return Context && Index!=UINT16_MAX && Generation && BindKey && ReadKey && CanHandoff && RemainingWaitMilliseconds && AcceptResponse && PublishDeliveryFailure && Cancel;
+        return Context && Index!=UINT16_MAX && Generation && BindKey && ReadKey && CanHandoff &&
+               RemainingWaitMilliseconds && BindAbandon && AcceptResponse && PublishDeliveryFailure && Cancel;
     }
 };
 
