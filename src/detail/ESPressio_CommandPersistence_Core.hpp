@@ -69,6 +69,22 @@ struct CommandLedgerReplay final {
     }
 };
 
+/// <summary>One durable terminal response that C4/C5 require to become proactively eligible after startup.</summary>
+/// <remarks>Only retained successful results and recovered Indeterminate executions are startup candidates.
+/// HandlerFailed remains duplicate-replayable but is not invented as a proactive reboot obligation.</remarks>
+struct CommandLedgerStartupResponse final {
+    CommandExecutionKey Key{};
+    System::DeviceRuntimeIdentity Executor{};
+    CommandResponseDisposition Disposition=CommandResponseDisposition::Succeeded;
+    bool ResultRetained=false;
+    constexpr explicit operator bool() const noexcept {
+        return Key.IsValid() && bool(Executor) &&
+               (ResultRetained
+                    ? Disposition==CommandResponseDisposition::Succeeded
+                    : Disposition==CommandResponseDisposition::IndeterminateAfterRestart);
+    }
+};
+
 template<class T>
 class CommandExecutionLedger final {
     static_assert(T::IsTransmissibleCommand && T::ValidateTier());
@@ -85,6 +101,9 @@ class CommandExecutionLedger final {
     static_assert(
         OriginCapacity>0 && WindowCapacity>0 &&
         OriginCapacity<=UINT16_MAX && WindowCapacity<=UINT16_MAX);
+    static_assert(
+        OriginCapacity<=SIZE_MAX/WindowCapacity,
+        "Command startup-response capacity overflows size_t");
     static_assert(
         !std::is_same_v<Response,NoCommandResponse> || !ResultRetention::Persistent,
         "NoCommandResponse cannot declare PersistentResults because it owns no result payload");
@@ -152,6 +171,7 @@ public:
         PersistentResponseResults ? ResultRetention::MaximumRetainedResults : 0;
     static constexpr std::size_t MaximumPersistentResultBytes=
         PersistentResponseResults ? ResultRetention::MaximumRetainedBytes : 0;
+    static constexpr std::size_t MaximumStartupResponses=OriginCapacity*WindowCapacity;
 
     class Reservation final {
         CommandExecutionLedger* _ledger=nullptr;
@@ -275,6 +295,8 @@ public:
     bool TryReadReplay(const CommandExecutionKey&,CommandLedgerReplay&) noexcept;
     bool LoadRetainedResult(const CommandExecutionKey&,Response&) noexcept;
     bool ResultFormatCompatible(CommandPayloadFormat) const noexcept;
+    std::size_t StartupResponseCount() noexcept;
+    bool StartupResponseAt(std::size_t,CommandLedgerStartupResponse&) noexcept;
     bool HasRecoveredStarted() const noexcept;
     bool ReservePersistentResult(const CommandExecutionKey&) noexcept;
     void AbandonPersistentResult(const CommandExecutionKey&) noexcept;
@@ -307,6 +329,7 @@ class CommandLedgerStorage<T,false> final {
 public:
     using Reservation=NoCommandLedgerReservation;
     static constexpr bool UsesPersistentResults=false;
+    static constexpr std::size_t MaximumStartupResponses=0;
 
     CommandRuntimeStatus Bind(CommandPersistenceBinding) noexcept {
         return CommandRuntimeStatus::InvalidConfiguration;
@@ -321,6 +344,8 @@ public:
     bool TryReadReplay(const CommandExecutionKey&,CommandLedgerReplay&) noexcept { return false; }
     bool LoadRetainedResult(const CommandExecutionKey&,typename T::ResponseType&) noexcept { return false; }
     bool ResultFormatCompatible(CommandPayloadFormat format) const noexcept { return IsValidCommandPayloadFormat(format); }
+    std::size_t StartupResponseCount() noexcept { return 0; }
+    bool StartupResponseAt(std::size_t,CommandLedgerStartupResponse&) noexcept { return false; }
     bool ReservePersistentResult(const CommandExecutionKey&) noexcept {
         return true;
     }
@@ -343,6 +368,7 @@ class CommandLedgerStorage<T,true> final {
 public:
     using Reservation=typename CommandExecutionLedger<T>::Reservation;
     static constexpr bool UsesPersistentResults=CommandExecutionLedger<T>::UsesPersistentResults;
+    static constexpr std::size_t MaximumStartupResponses=CommandExecutionLedger<T>::MaximumStartupResponses;
 
     CommandRuntimeStatus Bind(CommandPersistenceBinding binding) noexcept {
         return _ledger.Bind(binding);
@@ -370,6 +396,12 @@ public:
     }
     bool ResultFormatCompatible(CommandPayloadFormat format) const noexcept {
         return _ledger.ResultFormatCompatible(format);
+    }
+    std::size_t StartupResponseCount() noexcept {
+        return _ledger.StartupResponseCount();
+    }
+    bool StartupResponseAt(std::size_t index,CommandLedgerStartupResponse& response) noexcept {
+        return _ledger.StartupResponseAt(index,response);
     }
     bool ReservePersistentResult(const CommandExecutionKey& key) noexcept {
         return _ledger.ReservePersistentResult(key);
