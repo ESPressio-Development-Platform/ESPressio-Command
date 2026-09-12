@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstring>
 #include <string_view>
+#include <thread>
 using namespace ESPressio;
 namespace C=ESPressio::Command;
 
@@ -188,9 +189,9 @@ int main(){
     C::CommandOutboundBinding<CriticalCommand,Serializable::CBOR> criticalTransport;
     assert((responseTransport.Initialize<ResponseAdapter,&ResponseAdapter::Admit,&ResponseAdapter::Validate,&ResponseAdapter::ReserveRecovered>(responseAdapter)));
     assert((criticalTransport.Initialize<CriticalAdapter,&CriticalAdapter::Admit,&CriticalAdapter::Validate>(criticalAdapter)));
-    assert(runtime.BindTransport<OutboundCommand,Serializable::DirectBinary>(responseTransport)==C::CommandRuntimeStatus::Success);
-    assert(runtime.BindTransport<CriticalCommand,Serializable::CBOR>(criticalTransport)==C::CommandRuntimeStatus::Success);
-    assert(runtime.BindTransport<OutboundCommand,Serializable::DirectBinary>(responseTransport)==C::CommandRuntimeStatus::TypeConflict);
+    assert((runtime.BindTransport<OutboundCommand,Serializable::DirectBinary>(responseTransport)==C::CommandRuntimeStatus::Success));
+    assert((runtime.BindTransport<CriticalCommand,Serializable::CBOR>(criticalTransport)==C::CommandRuntimeStatus::Success));
+    assert((runtime.BindTransport<OutboundCommand,Serializable::DirectBinary>(responseTransport)==C::CommandRuntimeStatus::TypeConflict));
 
     Primitive::TypeDirectory<2> directory;
     assert(directory.Register<OutboundCommand>()==Primitive::TypeDirectoryRegistrationStatus::Success);
@@ -202,15 +203,15 @@ int main(){
     assert(responseAdapter.ValidateCalls==1 && criticalAdapter.ValidateCalls==1);
     assert(responseAdapter.Contract.TypeId==OutboundCommand::TypeId);
     assert(responseAdapter.Contract.Format==C::CommandPayloadFormat::DirectBinary);
-    assert(responseAdapter.Contract.MaximumRequestWireBytes==C::MaximumCompleteRequestWireBytes<OutboundCommand,Serializable::DirectBinary>);
-    assert(responseAdapter.Contract.MaximumResponseWireBytes==C::MaximumCompleteResponseWireBytes<OutboundCommand,Serializable::DirectBinary>);
+    assert((responseAdapter.Contract.MaximumRequestWireBytes==C::MaximumCompleteRequestWireBytes<OutboundCommand,Serializable::DirectBinary>));
+    assert((responseAdapter.Contract.MaximumResponseWireBytes==C::MaximumCompleteResponseWireBytes<OutboundCommand,Serializable::DirectBinary>));
     assert(responseAdapter.Contract.RequestDeliveryPolicy && responseAdapter.Contract.ResponseDeliveryPolicy);
     assert(responseAdapter.Contract.ProtectedIngressRecords==0 && responseAdapter.Contract.ProtectedIngressBytes==0);
     assert(criticalAdapter.Contract.Format==C::CommandPayloadFormat::CBOR);
-    assert(criticalAdapter.Contract.MaximumRequestWireBytes==C::MaximumCompleteRequestWireBytes<CriticalCommand,Serializable::CBOR>);
+    assert((criticalAdapter.Contract.MaximumRequestWireBytes==C::MaximumCompleteRequestWireBytes<CriticalCommand,Serializable::CBOR>));
     assert(criticalAdapter.Contract.MaximumResponseWireBytes==0 && !criticalAdapter.Contract.ResponseDeliveryPolicy);
     assert(criticalAdapter.Contract.ProtectedIngressRecords==2);
-    assert(criticalAdapter.Contract.ProtectedIngressBytes==2*C::MaximumCompleteRequestWireBytes<CriticalCommand,Serializable::CBOR>);
+    assert((criticalAdapter.Contract.ProtectedIngressBytes==2*C::MaximumCompleteRequestWireBytes<CriticalCommand,Serializable::CBOR>));
 
     CapabilityHost host;Threads::ThreadHostServices services{};services.Owner=&host;
     services.WakeFunction=&CapabilityHost::Wake;services.AcceptingFunction=&CapabilityHost::Accepting;services.NowFunction=&CapabilityHost::Time;
@@ -218,7 +219,6 @@ int main(){
     assert(responses.FinalizeInitialization()==Threads::ThreadStatus::Success);auto client=responses.Client(owner);
     const auto remote=Device(3);
 
-    // Adapter rejection is terminal to submission and releases both TH16 and the pre-reserved Type requester slot.
     responseAdapter.Next=C::CommandOutboundAdmissionStatus::CapacityUnavailable;
     auto rejected=client.TryExecuteTo<OutboundCommand,&Owner::OnResult>(remote,std::chrono::milliseconds(500),10);
     assert(!rejected && rejected.Status==C::CommandSubmissionStatus::CapacityUnavailable);
@@ -226,7 +226,6 @@ int main(){
     assert(!C::CommandTypeRuntime<OutboundCommand>::Get().Responses().FindRemoteRequesterReserved(responseAdapter.Key));
     assert(responses.LiveExpectations()==0);
 
-    // Delivery failure wins exactly once and releases the Type requester reservation before callback service.
     responseAdapter.Next=C::CommandOutboundAdmissionStatus::Accepted;responseAdapter.SawRequesterReservation=false;
     auto failed=client.ExecuteTo<OutboundCommand,&Owner::OnResult>(remote,std::chrono::milliseconds(500),20);
     assert(failed.Accepted() && responseAdapter.SawRequesterReservation && responseAdapter.Token);
@@ -239,7 +238,6 @@ int main(){
     responses.Service({host.Now.load(),services});
     assert(owner.Callbacks==1 && owner.LastKind==C::CommandCallerCompletionKind::RequestDeliveryFailed);
 
-    // Cancellation uses the same exact-key abandon seam; late adapter failure loses the race.
     auto cancelled=client.ExecuteTo<OutboundCommand,&Owner::OnResult>(remote,std::chrono::milliseconds(500),30);
     assert(cancelled.Accepted());const auto cancelKey=cancelled.Request.Key();const auto cancelToken=responseAdapter.Token;
     assert(C::CommandTypeRuntime<OutboundCommand>::Get().Responses().FindRemoteRequesterReserved(cancelKey));
@@ -248,7 +246,6 @@ int main(){
     assert(!cancelToken.PublishFailure());responseAdapter.ReleaseRequest();
     assert(owner.Callbacks==1);
 
-    // Timeout releases external Type capacity before OnResult; no response ever needs to arrive.
     auto timed=client.ExecuteTo<OutboundCommand,&Owner::OnResult>(remote,std::chrono::milliseconds(1),40);
     assert(timed.Accepted());const auto timedKey=timed.Request.Key();const auto timedToken=responseAdapter.Token;
     assert(C::CommandTypeRuntime<OutboundCommand>::Get().Responses().FindRemoteRequesterReserved(timedKey));
@@ -257,7 +254,6 @@ int main(){
     assert(!C::CommandTypeRuntime<OutboundCommand>::Get().Responses().FindRemoteRequesterReserved(timedKey));
     assert(!timedToken.PublishFailure());responseAdapter.ReleaseRequest();
 
-    // A real response wins the terminal race. The original delivery-failure token becomes stale.
     auto succeeded=client.ExecuteTo<OutboundCommand,&Owner::OnResult>(remote,std::chrono::milliseconds(500),50);
     assert(succeeded.Accepted());const auto successKey=succeeded.Request.Key();const auto successToken=responseAdapter.Token;
     std::array<std::uint8_t,C::MaximumCompleteResponseWireBytes<OutboundCommand,Serializable::DirectBinary>> wire{};
@@ -277,13 +273,12 @@ int main(){
     assert(owner.Callbacks==3 && owner.LastKind==C::CommandCallerCompletionKind::Response &&
            owner.LastDisposition==C::CommandResponseDisposition::Succeeded && owner.LastValue==777);
 
-    // No-response remote submission never buys TH16/response capacity and exports no delivery token.
     const auto beforeLive=responses.LiveExpectations();
     auto critical=CriticalCommand::TryExecuteTo(remote,60);
     assert(critical && criticalAdapter.AdmitCalls==1 && !criticalAdapter.SawToken);
     assert(responses.LiveExpectations()==beforeLive);criticalAdapter.ReleaseRequest();
 
-    assert(runtime.BindTransport<OutboundCommand,Serializable::DirectBinary>(responseTransport)==C::CommandRuntimeStatus::Frozen);
+    assert((runtime.BindTransport<OutboundCommand,Serializable::DirectBinary>(responseTransport)==C::CommandRuntimeStatus::Frozen));
     responses.Quiesce({host.Now.load(),services});
     assert(runtime.Shutdown()==C::CommandRuntimeStatus::Success);
 }
