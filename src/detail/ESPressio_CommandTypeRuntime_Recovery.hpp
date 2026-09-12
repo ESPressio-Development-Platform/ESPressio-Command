@@ -31,8 +31,22 @@ CommandRemoteResponseDestination CommandTypeRuntime<T>::RecoveryDestination(
 }
 
 template<class T>
+CommandRuntimeStatus CommandTypeRuntime<T>::StageRecoveredResponses() noexcept {
+    std::lock_guard<System::Synchronization::Mutex> lock(_admission);
+    if(_phase!=Phase::Prepared) return CommandRuntimeStatus::InvalidConfiguration;
+    if constexpr(!std::is_same_v<Response,NoCommandResponse>){
+        _responses.BindCapacityWake(
+            this,
+            [](void* p) noexcept {
+                static_cast<CommandTypeRuntime*>(p)->OnResponseCapacityChanged();
+            });
+    }
+    return StageRecoveredResponsesLocked();
+}
+
+template<class T>
 CommandRuntimeStatus CommandTypeRuntime<T>::StageRecoveredResponsesLocked() noexcept {
-    _recoveryCount=0;
+    if(_recoveryCount) return CommandRuntimeStatus::InvalidConfiguration;
     _recovery.fill({});
     _transportValidated=false;
 
@@ -82,21 +96,27 @@ CommandRuntimeStatus CommandTypeRuntime<T>::StageRecoveredResponsesLocked() noex
 }
 
 template<class T>
+void CommandTypeRuntime<T>::ReleaseRecoveryStaging() noexcept {
+    std::lock_guard<System::Synchronization::Mutex> lock(_admission);
+    ReleaseRecoveryStagingLocked();
+}
+
+template<class T>
 void CommandTypeRuntime<T>::ReleaseRecoveryStagingLocked() noexcept {
     if constexpr(RecoveryCapacity>0){
         for(std::size_t i=0;i<_recoveryCount;++i){
             auto& entry=_recovery[i];
-            if(entry.State==RecoveryState::Pending && entry.AdapterDestination &&
+            if(entry.State!=RecoveryState::Empty &&
+               entry.State!=RecoveryState::Accepted &&
+               entry.AdapterDestination &&
                _outbound && _outbound.ReleaseRecoveredResponse){
                 _outbound.ReleaseRecoveredResponse(_outbound.Owner,entry.AdapterDestination);
             }
-            if(entry.State==RecoveryState::Pending){
-                entry={};
-            }
+            entry={};
         }
-        while(_recoveryCount && _recovery[_recoveryCount-1].State==RecoveryState::Empty)
-            --_recoveryCount;
+        _recoveryCount=0;
     }
+    _transportValidated=false;
 }
 
 template<class T>
