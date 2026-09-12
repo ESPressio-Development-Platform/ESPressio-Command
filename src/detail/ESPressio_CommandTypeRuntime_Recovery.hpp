@@ -67,7 +67,11 @@ CommandRuntimeStatus CommandTypeRuntime<T>::StageRecoveredResponsesLocked() noex
             const auto count=_ledger.StartupResponseCount();
             if(!count) return CommandRuntimeStatus::Success;
             if(count>RecoveryCapacity) return CommandRuntimeStatus::PersistenceCorrupt;
-            if(!_outbound) return CommandRuntimeStatus::MissingTransport;
+            // A Transmissible Type may be configured as an inbound-only endpoint in this family tranche.
+            // Without a frozen outbound response target the durable entries remain authoritative in the
+            // ledger and continue to replay on duplicate ingress; proactive boot routing is staged only
+            // when an outbound binding exists.
+            if(!_outbound) return CommandRuntimeStatus::Success;
             if(!_outbound.ReserveRecoveredResponse || !_outbound.ReleaseRecoveredResponse)
                 return CommandRuntimeStatus::InvalidConfiguration;
             if(_recoveryGeneration>std::numeric_limits<std::uint64_t>::max()-count)
