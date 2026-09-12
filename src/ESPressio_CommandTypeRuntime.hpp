@@ -49,6 +49,11 @@ template<class T> class CommandTypeRuntime final {
     using LedgerStorage=Detail::CommandLedgerStorage<T>;
     using LedgerReservation=typename LedgerStorage::Reservation;
     static constexpr bool PersistentResponseResults=LedgerStorage::UsesPersistentResults;
+    static constexpr std::size_t RecoveryCapacity=
+        T::IsTransmissibleCommand && !std::is_same_v<Response,NoCommandResponse>
+            ? LedgerStorage::MaximumStartupResponses
+            : 0;
+
     struct WorkItem final {
         CommandRequestLease<T> Request{};
         ResponseHandle ResponseReservation{};
@@ -60,7 +65,16 @@ template<class T> class CommandTypeRuntime final {
         WorkItem(WorkItem&&)=default;WorkItem& operator=(WorkItem&&)=default;
     };
     static_assert(std::is_nothrow_move_constructible_v<WorkItem> && std::is_nothrow_destructible_v<WorkItem>);
+
     enum class Phase:std::uint8_t{Uninitialized,Prepared,Running,Stopping};
+    enum class RecoveryState:std::uint8_t{Empty,Pending,InFlight,Accepted};
+    struct RecoveryEntry final {
+        RecoveryState State=RecoveryState::Empty;
+        std::uint64_t Generation=0;
+        CommandLedgerStartupResponse Response{};
+        CommandRemoteResponseDestination AdapterDestination{};
+    };
+
     CommandRequestPool<T> _pool;
     CommandPendingQueue<WorkItem,T::MaximumPendingExecutions> _pending;
     std::array<Task::IdleWorkerTask<WorkItem>,LaneCount> _lanes{};
@@ -70,6 +84,10 @@ template<class T> class CommandTypeRuntime final {
     LedgerStorage _ledger{};
     CommandHandlerBinding<T> _handler;
     Detail::CommandOutboundBindingView<T> _outbound{};
+    std::array<RecoveryEntry,RecoveryCapacity?RecoveryCapacity:1> _recovery{};
+    std::size_t _recoveryCount=0;
+    std::uint64_t _recoveryGeneration=0;
+    bool _transportValidated=false;
     System::Synchronization::Mutex _admission;
     std::unique_ptr<System::Synchronization::ISignal> _capacityChanged;
     std::atomic<Phase> _phase{Phase::Uninitialized};
@@ -100,7 +118,12 @@ template<class T> class CommandTypeRuntime final {
     static Timing::QualifiedTime CaptureSystemTime();
     static CommandSubmissionStatus MapLedgerStatus(CommandRemoteAdmissionStatus) noexcept;
     static CommandSubmissionStatus MapOutboundStatus(CommandOutboundAdmissionStatus) noexcept;
+    static bool AcceptRecoveredResponseThunk(
+        void*,std::uint16_t,std::uint64_t,const CommandExecutionKey&,
+        const System::DeviceRuntimeIdentity&,CommandResponseDisposition,
+        CommandResponsePayloadLease&&) noexcept;
     void Wake() noexcept;
+    void OnResponseCapacityChanged() noexcept;
     std::size_t LaneIndex(const Task::IdleWorkerTask<WorkItem>*) const noexcept;
     bool TryIssue(CommandId&) noexcept;
     bool TryAssignOldestLocked(std::size_t) noexcept;
@@ -113,6 +136,15 @@ template<class T> class CommandTypeRuntime final {
     bool HasPersistence() const noexcept;
     bool HasTransport() const noexcept;
     bool ValidateTransport() noexcept;
+    CommandRuntimeStatus StageRecoveredResponsesLocked() noexcept;
+    void ReleaseRecoveryStagingLocked() noexcept;
+    void PumpRecoveredResponses() noexcept;
+    void PumpRecoveredResponsesLocked() noexcept;
+    bool AcceptRecoveredResponse(
+        std::uint16_t,std::uint64_t,const CommandExecutionKey&,
+        const System::DeviceRuntimeIdentity&,CommandResponseDisposition,
+        CommandResponsePayloadLease&&) noexcept;
+    CommandRemoteResponseDestination RecoveryDestination(std::size_t) noexcept;
     template<class> friend struct CommandDescriptorProvider;
     friend class Runtime;
 public:
@@ -140,3 +172,4 @@ public:
 #include "detail/ESPressio_CommandTypeRuntime_Impl.hpp"
 #include "detail/ESPressio_CommandTypeRuntime_Remote.hpp"
 #include "detail/ESPressio_CommandTypeRuntime_Outbound.hpp"
+#include "detail/ESPressio_CommandTypeRuntime_Recovery.hpp"
