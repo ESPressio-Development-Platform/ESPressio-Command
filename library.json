@@ -1,7 +1,7 @@
 {
     "name": "ESPressio-Command",
-    "description": "Transport-neutral asynchronous Command intent, typed interpretation and local dispatch framework",
-    "keywords": "command,commands,intent,cli,json,parser,interpreter,dispatcher,observable,event,espressio",
+    "description": "Bounded typed Command execution, response capabilities, exact V1 wire contracts and durable replay/result retention",
+    "keywords": "command,commands,typed,execution,routing,response,persistence,replay,espressio",
     "authors": {
         "name": "Simon J. Stuart",
         "maintainer": true,
@@ -20,26 +20,12 @@
     "frameworks": "*",
     "platforms": "*",
     "dependencies": [
-        {
-            "name": "ESPressio-System",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-System.git#primitives_redesign"
-        },
-        {
-            "name": "ESPressio-Primitive",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Primitive.git#primitives_redesign"
-        },
-        {
-            "name": "ESPressio-Task",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Task.git#primitives_redesign"
-        },
-        {
-            "name": "ESPressio-Observable",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Observable.git#primitives_redesign"
-        },
-        {
-            "name": "ESPressio-Event",
-            "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Event.git#primitives_redesign",
-            "platforms": "espressif32"
-        }
+        {"name": "ESPressio-System", "version": "https://github.com/ESPressio-Development-Platform/ESPressio-System.git#primitives_redesign"},
+        {"name": "ESPressio-Primitive", "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Primitive.git#primitives_redesign"},
+        {"name": "ESPressio-Task", "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Task.git#primitives_redesign"},
+        {"name": "ESPressio-Threads", "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Threads.git#primitives_redesign"},
+        {"name": "ESPressio-Timing", "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Timing.git#primitives_redesign"},
+        {"name": "ESPressio-Serializable", "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Serializable.git#primitives_redesign"},
+        {"name": "ESPressio-Persistence", "version": "https://github.com/ESPressio-Development-Platform/ESPressio-Persistence.git#primitives_redesign"}
     ]
 }

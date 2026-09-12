@@ -18,17 +18,19 @@ jobs:
         with: {repository: ESPressio-Development-Platform/ESPressio-Timing, ref: primitives_redesign, path: deps/ESPressio-Timing}
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Serializable, ref: primitives_redesign, path: deps/ESPressio-Serializable}
+      # Units and Observable are transitive checkout support for the current dependency branches;
+      # neither is a canonical direct ESPressio-Command dependency.
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Units, ref: primitives_redesign, path: deps/ESPressio-Units}
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Observable, ref: primitives_redesign, path: deps/ESPressio-Observable}
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Persistence, ref: primitives_redesign, path: deps/ESPressio-Persistence}
-      - name: Reject predecessor core coupling
+      - name: Reject predecessor dependency coupling
         shell: bash
         run: |
-          if grep -R -nE '#[[:space:]]*include[[:space:]]*[<\"]ESPressio_(Event|CommandEvents|CommandRegistryEventBridge|Observable)' src/ESPressio_Command.hpp src/ESPressio_Commands.hpp; then exit 1; fi
-          if grep -R -nE '#[[:space:]]*include[[:space:]]*[<\"](ArduinoJson|ESPressio_JsonCommandInterpreter)' src/ESPressio_Command.hpp src/ESPressio_Commands.hpp; then exit 1; fi
+          if grep -R -nE '#[[:space:]]*include[[:space:]]*[<\"]ESPressio_(Event|Observable)|ArduinoJson|CommandRegistry|CommandCorrelationId' src; then exit 1; fi
+          if grep -nE 'ESPressio-(Event|Observable)|ArduinoJson|CommandRegistry|CommandCorrelationId' library.json library.properties; then exit 1; fi
       - name: Configure host contracts
         run: cmake -S tests -B build -DESPRESSIO_DEPENDENCIES="$GITHUB_WORKSPACE/deps"
       - name: Build host contracts
@@ -53,6 +55,7 @@ jobs:
         with: {repository: ESPressio-Development-Platform/ESPressio-Timing, ref: primitives_redesign, path: project/dependencies/ESPressio-Timing}
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Serializable, ref: primitives_redesign, path: project/dependencies/ESPressio-Serializable}
+      # Transitive checkout support only; not Command direct dependency edges.
       - uses: actions/checkout@v4
         with: {repository: ESPressio-Development-Platform/ESPressio-Units, ref: primitives_redesign, path: project/dependencies/ESPressio-Units}
       - uses: actions/checkout@v4
@@ -78,12 +81,12 @@ jobs:
               ../dependencies/ESPressio-System
               ../dependencies/ESPressio-Primitive
               ../dependencies/ESPressio-Task
-              ../dependencies/ESPressio-Timing
-              ../dependencies/ESPressio-Units
-              ../dependencies/ESPressio-Observable
               ../dependencies/ESPressio-Threads
+              ../dependencies/ESPressio-Timing
               ../dependencies/ESPressio-Serializable
               ../dependencies/ESPressio-Persistence
+              ../dependencies/ESPressio-Units
+              ../dependencies/ESPressio-Observable
               ../ESPressio-Command
           INI
           cat > project/compile/src/main.cpp <<'CPP'

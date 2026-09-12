@@ -1,49 +1,32 @@
-# ESPressio Dependency Chart — Current Released Generation
+# ESPressio Dependency Chart — Command `primitives_redesign`
 
-![ESPressio Library Dependency Chart](ESPRESSIO_DEPENDENCY_CHART.svg)
+![ESPressio Command Dependency Chart](ESPRESSIO_DEPENDENCY_CHART.svg)
 
-## Released generation
-
-```text
-Observable
-Serializable
-Units
-Timing
-Threads
-Event
-Command
-Security
-Persistence
-Sockets
-ESP-Now
-WiFi
-Serial
-```
-
-## Command dependency position
+## Canonical direct dependencies
 
 ```text
 Command
-    -> Observable main
-
-Command Event integration
-    - - -> Event main
-```
-
-Command owns Command-domain Event types and `CommandRegistryEventBridge`; Event does not depend back on Command. `JsonCommandInterpreter` optionally consumes external ArduinoJson 7.x, which is not an ESPressio dependency edge.
-
-## Completed cascade
-
-```text
-Serializable
-    -> Units
-    -> Timing
+    -> System
+    -> Primitive
+    -> Task
     -> Threads
-    -> Event
-    -> Command / Security
-    -> Persistence / Sockets / ESP-Now
-    -> WiFi
-    -> Serial
+    -> Timing
+    -> Serializable
+    -> Persistence
 ```
 
-Serial remains terminal/downstream. ESPressio Tree remains standalone.
+These seven edges are the complete canonical Command dependency surface for the redesigned typed runtime.
+
+## Removed predecessor edges
+
+```text
+Command -X-> Observable
+Command -X-> Event
+Command -X-> ArduinoJson
+```
+
+Command owns no Event telemetry bridge, mutable registry observer lifecycle, registry-backed text/JSON interpreter, or ArduinoJson core dependency. Transport integration is adapter-facing and does not make Mesh, Radio, Event, State, Sockets or any concrete transport a Command dependency.
+
+## Test composition
+
+Repository CI may check out additional libraries required transitively by the direct dependencies above. Such checkout/support paths are build composition and do not create additional Command dependency edges.
