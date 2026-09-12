@@ -181,8 +181,10 @@ struct Capture final {
                             C::CommandResponsePayloadLease&& payload) noexcept {
         auto& self=*static_cast<Capture*>(context);
         std::lock_guard<std::mutex> lock(self.Mutex);
-        ++self.Calls;self.Key=key;self.Executor=executor;self.Disposition=disposition;self.PayloadValue=-1;
+        self.Key=key;self.Executor=executor;self.Disposition=disposition;self.PayloadValue=-1;
         if(payload.Payload()) self.PayloadValue=static_cast<const RemoteResponse*>(payload.Payload())->Value;
+        payload.Reset();
+        ++self.Calls;
         return self.AcceptValue;
     }
     C::CommandRemoteResponseDestination Destination() noexcept { return {this,0,1,&AcceptThunk}; }
