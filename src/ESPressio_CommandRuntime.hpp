@@ -109,7 +109,8 @@ public:
             if(common.Key.Family!=CommandFamilyId) continue;
             const auto* descriptor=GetCommandTypeDescriptor(common);
             if(!descriptor || !descriptor->HasHandler || !descriptor->HasPersistence || !descriptor->BindPersistence ||
-               !descriptor->Initialize || !descriptor->ValidateStart || !descriptor->StartValidated ||
+               !descriptor->Initialize || !descriptor->StageRecoveredResponses || !descriptor->PumpRecoveredResponses ||
+               !descriptor->ReleaseRecoveryStaging || !descriptor->ValidateStart || !descriptor->StartValidated ||
                !descriptor->CloseAdmissions || !descriptor->Shutdown || !descriptor->RollbackInitialization || !descriptor->BindResponseRouter)
                 return CommandRuntimeStatus::InvalidDirectory;
             if(descriptor->Tier==CommandTier::Transmissible){
@@ -130,14 +131,11 @@ public:
         for(const auto& common:directory)
             if(common.Key.Family==CommandFamilyId && !GetCommandTypeDescriptor(common)->HasHandler())
                 return CommandRuntimeStatus::MissingHandler;
-        if(responseSlots){
-            const auto status=_configuration.ResponseRouter.Initialize();
-            if(status!=Task::TaskExecutionStatus::Success) return CommandRuntimeStatus::TaskCreationFailed;
-            _routerInitialized=true;
-        }
+
         _directory=directory;
         _preparedTypes=0;
         _responseSlots=responseSlots;
+
         for(const auto& common:directory){
             if(common.Key.Family!=CommandFamilyId) continue;
             const auto* descriptor=GetCommandTypeDescriptor(common);
@@ -155,6 +153,27 @@ public:
             }
             ++_preparedTypes;
         }
+
+        if(responseSlots){
+            const auto status=_configuration.ResponseRouter.Initialize();
+            if(status!=Task::TaskExecutionStatus::Success){
+                RollbackPrepared();
+                return CommandRuntimeStatus::TaskCreationFailed;
+            }
+            _routerInitialized=true;
+        }
+
+        std::size_t staged=0;
+        for(const auto& common:directory){
+            if(common.Key.Family!=CommandFamilyId) continue;
+            if(staged++==_preparedTypes) break;
+            const auto status=GetCommandTypeDescriptor(common)->StageRecoveredResponses();
+            if(status!=CommandRuntimeStatus::Success){
+                RollbackPrepared();
+                return status;
+            }
+        }
+
         _initialized=true;
         return CommandRuntimeStatus::Success;
     }
@@ -233,6 +252,8 @@ public:
         for(const auto& common:_directory)
             if(common.Key.Family==CommandFamilyId) GetCommandTypeDescriptor(common)->StartValidated();
         _running.store(true,std::memory_order_release);
+        for(const auto& common:_directory)
+            if(common.Key.Family==CommandFamilyId) GetCommandTypeDescriptor(common)->PumpRecoveredResponses();
         return CommandRuntimeStatus::Success;
     }
 
@@ -267,6 +288,12 @@ public:
             _routerInitialized=false;
             _routerStarted=false;
         }
+        visited=0;
+        for(const auto& common:_directory){
+            if(common.Key.Family!=CommandFamilyId) continue;
+            if(visited++==_preparedTypes) break;
+            GetCommandTypeDescriptor(common)->ReleaseRecoveryStaging();
+        }
         if(!joined) return CommandRuntimeStatus::JoinFailed;
         _initialized=false;
         return CommandRuntimeStatus::Success;
@@ -294,18 +321,24 @@ public:
     Primitive::TypeDirectoryView Directory() const noexcept { return _directory; }
 private:
     void RollbackPrepared() noexcept {
+        if(_routerInitialized){
+            (void)_configuration.ResponseRouter.Shutdown();
+            _routerInitialized=false;
+            _routerStarted=false;
+        }
         std::size_t visited=0;
+        for(const auto& common:_directory){
+            if(common.Key.Family!=CommandFamilyId) continue;
+            if(visited++==_preparedTypes) break;
+            GetCommandTypeDescriptor(common)->ReleaseRecoveryStaging();
+        }
+        visited=0;
         for(const auto& common:_directory){
             if(common.Key.Family!=CommandFamilyId) continue;
             if(visited++==_preparedTypes) break;
             (void)GetCommandTypeDescriptor(common)->RollbackInitialization();
         }
         _preparedTypes=0;
-        if(_routerInitialized){
-            (void)_configuration.ResponseRouter.Shutdown();
-            _routerInitialized=false;
-            _routerStarted=false;
-        }
     }
 };
 } // namespace ESPressio::Command
