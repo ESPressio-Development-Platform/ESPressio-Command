@@ -11,11 +11,20 @@ namespace ESPressio::Command {
 using CommandTypeId = Primitive::CommandTypeId;
 inline constexpr Primitive::PrimitiveFamilyId CommandFamilyId = Primitive::FamilyIds::Command;
 inline constexpr Primitive::PrimitiveProtocolVersion CommandProtocolVersion = 1;
+/// <summary>Exact Command V1 semantic wire-header sizes; codecs use explicit little-endian offsets, never native struct layout.</summary>
+/// <remarks>Request offsets: family0, protocol2, kind4, TypeId5, CommandId13, OriginDevice17, OriginRuntime33,
+/// OriginRequestTime37, reliability45, payload length46, payload50. Response offsets: family0, protocol2, kind4,
+/// TypeId5, CommandId13, OriginDevice17, OriginRuntime33, ExecutorDevice37, ExecutorRuntime53, disposition57,
+/// payload length58, payload62. Physical target/route metadata is deliberately absent.</remarks>
 inline constexpr std::size_t CommandRequestWireHeaderSize = 50;
 inline constexpr std::size_t CommandResponseWireHeaderSize = 62;
 
+/// <summary>Marker used by fire-and-forget Commands; such Types allocate no destination/requester response state.</summary>
 struct NoCommandResponse final {};
 
+/// <summary>Origin-local 32-bit Command sequence number.</summary>
+/// <remarks>CommandTypeRuntime allocates only non-zero values, burns an issued value even when later admission fails,
+/// never wraps, and reports IdentifierExhausted rather than reusing an ID within the same RuntimeIncarnation.</remarks>
 class CommandId final {
     std::uint32_t _value{};
 public:
@@ -29,6 +38,9 @@ public:
 };
 static_assert(sizeof(CommandId)==4,"CommandId must be exactly four bytes");
 
+/// <summary>Globally meaningful Command execution identity used for duplicate/replay authority.</summary>
+/// <remarks>The full key is TypeId + origin DeviceIdentifier + origin RuntimeIncarnationId + CommandId. It replaces
+/// generic CorrelationId and is the only identity used by the durable execution ledger and requester response match.</remarks>
 struct CommandExecutionKey final {
     CommandTypeId TypeId{};
     System::DeviceIdentifier OriginDevice{};
@@ -41,6 +53,7 @@ struct CommandExecutionKey final {
     constexpr bool operator!=(const CommandExecutionKey& other) const noexcept { return !(*this==other); }
 };
 
+/// <summary>Stable executor-side terminal classification encoded by Command V1 response byte 57.</summary>
 enum class CommandResponseDisposition : std::uint8_t {
     Succeeded=0, HandlerFailed=1, IndeterminateAfterRestart=2,
     AlreadyExecutedResultExpired=3, ExecutionHistoryExpired=4, StaleOriginRuntime=5
@@ -49,6 +62,7 @@ constexpr bool IsValidCommandResponseDisposition(CommandResponseDisposition valu
     return static_cast<std::uint8_t>(value)<=static_cast<std::uint8_t>(CommandResponseDisposition::StaleOriginRuntime);
 }
 
+/// <summary>Source-side admission result. Accepted means the framework has taken bounded ownership of the request.</summary>
 enum class CommandSubmissionStatus : std::uint8_t {
     Accepted, NotInitialized, Stopping, CapacityUnavailable, ResponseCapacityUnavailable,
     IdentityUnavailable, IdentifierExhausted, HandlerUnavailable, PersistenceUnavailable,
@@ -67,6 +81,9 @@ enum class CommandRuntimeStatus : std::uint8_t {
     MissingTransport, Frozen, StorageUnavailable, TaskCreationFailed, Stopping, JoinFailed
 };
 
+/// <summary>Non-blocking remote family-admission classification.</summary>
+/// <remarks>TemporarilyUnavailable/InProgress are retryable bounded-pressure states; DuplicateTerminal never authorizes
+/// another handler invocation and is resolved through retained terminal/replay authority.</remarks>
 enum class CommandRemoteAdmissionStatus : std::uint8_t {
     Admitted, InProgress, DuplicateTerminal, StaleOriginRuntime, ExecutionHistoryExpired,
     LedgerCapacityUnavailable, TemporarilyUnavailable, SchemaOrDecodeFailure,
@@ -87,11 +104,17 @@ enum class CommandCallerCompletionKind : std::uint8_t {
     Response, RequestDeliveryFailed, ResponseTimedOut
 };
 
+/// <summary>Immutable framework facts attached to the request-pool placement object.</summary>
+/// <remarks>OriginRequestTime is captured at API entry before any RequiredExecution admission wait and remains stable
+/// while the placement object is leased through pending/execution/adapter ownership.</remarks>
 struct CommandRequestFacts final {
     CommandExecutionKey Key{};
     Timing::QualifiedTime OriginRequestTime{};
 };
 
+/// <summary>Handler-visible immutable execution provenance.</summary>
+/// <remarks>ExecutorDeviceRuntimeIdentity identifies the executor incarnation that actually invoked the handler; this
+/// identity is persisted for retained result replay so reboot/retry does not rewrite executor provenance.</remarks>
 class CommandExecutionContext final {
     CommandExecutionKey _key{};
     Timing::QualifiedTime _originTime{};

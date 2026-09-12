@@ -4,7 +4,10 @@
 #include "ESPressio_CommandPolicies.hpp"
 #include "ESPressio_SerializableCommand.hpp"
 namespace ESPressio::Command {
-/// <summary>Distributed tier. Request/response delivery and replay retention are static Type contracts.</summary>
+/// <summary>Distributed typed Command tier with bounded P3 schema, P2 delivery policy and finite duplicate/replay authority.</summary>
+/// <remarks>Transport binding is semantic only: adapters receive a typed request lease plus target DeviceIdentifier and own
+/// packetization, physical routing, retry workers and lower-layer acknowledgements. ExecuteTo captures source facts and
+/// establishes all Command-owned bounded reservations before the adapter may accept the request.</remarks>
 template<class TDerived,class TResponse=NoCommandResponse> class TransmissibleCommand : public SerializableCommand<TDerived,TResponse> {
 public:
     static constexpr bool IsTransmissibleCommand=true;
@@ -21,10 +24,12 @@ public:
         }
         return true;
     }
+    /// <summary>Blocking source submission to a semantic target for a no-response Transmissible Command.</summary>
     template<class... Args,class R=TResponse,std::enable_if_t<std::is_same_v<R,NoCommandResponse>,int> =0>
     static CommandSubmissionResult ExecuteTo(System::DeviceIdentifier target,Args&&... args) {
         return CommandTypeRuntime<TDerived>::Get().template SubmitRemoteNoResponse<true>(target,std::forward<Args>(args)...);
     }
+    /// <summary>Non-blocking source submission to a semantic target; transport/capacity pressure is reported immediately.</summary>
     template<class... Args,class R=TResponse,std::enable_if_t<std::is_same_v<R,NoCommandResponse>,int> =0>
     static CommandSubmissionResult TryExecuteTo(System::DeviceIdentifier target,Args&&... args) {
         return CommandTypeRuntime<TDerived>::Get().template SubmitRemoteNoResponse<false>(target,std::forward<Args>(args)...);

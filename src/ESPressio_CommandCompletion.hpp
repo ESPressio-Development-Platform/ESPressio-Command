@@ -9,6 +9,9 @@ namespace ESPressio::Command {
 template<std::size_t N> class ResponseCapability;
 class CommandClient;
 
+/// <summary>Generation-safe handle for one TH16 requester expectation.</summary>
+/// <remarks>The handle identifies only requester-side completion state. Cancelling it wins the requester expectation
+/// race when possible but never revokes a request already owned by the destination execution runtime.</remarks>
 class CommandRequestHandle final {
     void* _endpoint=nullptr;
     std::uint16_t _index=UINT16_MAX;
@@ -46,6 +49,10 @@ struct CommandRequesterReservation final {
 };
 }
 
+/// <summary>Typed one-winner terminal observation delivered by a ResponseCapability to its owning Thread.</summary>
+/// <remarks>Response, request-delivery failure and timeout compete for one TH16 slot. The capability releases that slot
+/// before invoking the application callback, so re-entrant submission from OnResult cannot self-deadlock on the slot.
+/// Executor provenance is meaningful for a Command response; ResponseValue is present only for Succeeded.</remarks>
 template<class TCommand> class CommandCompletion final {
     using Response=typename TCommand::ResponseType;
     CommandRequestHandle _handle{};
@@ -77,6 +84,11 @@ struct CommandClientSubmissionResult final {
     constexpr explicit operator bool() const noexcept { return Accepted(); }
 };
 
+/// <summary>Typed requester façade over one finite ResponseCapability.</summary>
+/// <remarks>A response-bearing submission reserves its TH16 requester slot before local admission or remote emission.
+/// For remote execution the Type-local RemoteRequester response slot is also reserved before adapter admission, so an
+/// exact matching response never needs unreserved requester capacity. Cancel/timeout/delivery-failure abandon that
+/// Type reservation through the same generation-safe one-winner lifecycle.</remarks>
 class CommandClient final {
     void* _capability=nullptr;
     void* _owner=nullptr;

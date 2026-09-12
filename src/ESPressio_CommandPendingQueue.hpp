@@ -4,7 +4,9 @@
 #include <utility>
 
 namespace ESPressio::Command {
-/// <summary>Owner-serialized exact FIFO. Capacity zero is valid and stores no backlog.</summary>
+/// <summary>Owner-serialized exact FIFO used only between admission and T1 lane ownership.</summary>
+/// <remarks>Capacity zero is valid and stores no semantic backlog. Pop order is admission order, so once no free lane
+/// is immediately available the oldest queued WorkItem is always assigned to the next released lane.</remarks>
 template<class T, std::size_t N> class CommandPendingQueue final {
     std::array<T, N == 0 ? 1 : N> _items{};
     std::size_t _head = 0;

@@ -9,6 +9,9 @@
 
 namespace ESPressio::Command {
 /// <summary>One frozen owner/member binding per Type. Member pointer bytes are fixed inline storage; no std::function or heap.</summary>
+/// <remarks>Binding is established before Runtime initialization and never replaced while running. Handler exceptions are
+/// contained at this boundary and converted to HandlerFailed so application code cannot unwind through the T1 worker task.
+/// Response construction occurs directly in the already-reserved destination response slot.</remarks>
 template<class T> class CommandHandlerBinding final {
     using Response=typename T::ResponseType;
     static constexpr std::size_t MethodStorageBytes=4*sizeof(void*);

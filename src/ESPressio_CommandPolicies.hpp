@@ -8,11 +8,14 @@
 #include "ESPressio_CommandTypes.hpp"
 
 namespace ESPressio::Command {
-/// <summary>One sequential lane. Execute may bounded-wait for Type-private admission capacity.</summary>
+/// <summary>One sequential T1 execution lane. Blocking admission may wait for Type-private capacity.</summary>
+/// <remarks>The admission gate is released while sleeping; OriginRequestTime and CommandId were already captured/issued.</remarks>
 struct RequiredExecution final {};
-/// <summary>One sequential lane. Congestion is terminal for the submission and never waits.</summary>
+/// <summary>One sequential T1 lane. Congestion is terminal for that submission and never waits.</summary>
 struct DiscardableExecution final {};
-/// <summary>N explicitly purchased, pre-created protected execution lanes; N is never dynamic.</summary>
+/// <summary>N explicitly purchased, pre-created protected T1 execution lanes; N is never dynamic.</summary>
+/// <remarks>For Transmissible Types the family descriptor/outbound contract additionally exports N protected ingress
+/// records and N * selected-format maximum request-wire bytes. A bound lower adapter must validate that claim before Start.</remarks>
 template<std::size_t N> struct CriticalExecution final {
     static_assert(N>=1,"CriticalExecution<N> requires N >= 1");
     static constexpr std::size_t LaneCount=N;
@@ -32,9 +35,13 @@ template<std::size_t N> struct ExecutionAdmissionTraits<CriticalExecution<N>> {
 template<class T,class=void> struct IsExecutionAdmissionPolicy : std::false_type {};
 template<class T> struct IsExecutionAdmissionPolicy<T,std::void_t<decltype(ExecutionAdmissionTraits<T>::LaneCount)>> : std::true_type {};
 
-/// <summary>Retain terminal execution knowledge durably while response payload retention is RAM-only.</summary>
+/// <summary>Durably retain terminal execution knowledge while successful response payload retention remains RAM-only.</summary>
+/// <remarks>A duplicate successful execution whose volatile result is no longer available becomes AlreadyExecutedResultExpired;
+/// the handler is never replayed merely because its payload was not persisted.</remarks>
 struct VolatileResults final { static constexpr bool Persistent=false; static constexpr std::size_t MaximumRetainedResults=0,MaximumRetainedBytes=0; };
-/// <summary>Hard finite persistent response-payload budget owned by the Command Type.</summary>
+/// <summary>Hard finite persistent successful-response budget owned by one Command Type.</summary>
+/// <remarks>Result bytes are written before ledger promotion to CompletedResultRetained and are removed only after the ledger
+/// is durably moved to the post-admission terminal state. Results/Bytes are compile-time maxima, never growth hints.</remarks>
 template<std::size_t Results,std::size_t Bytes> struct PersistentResults final {
     static_assert(Results>0 && Bytes>0,"PersistentResults requires positive finite result and byte bounds");
     static constexpr bool Persistent=true;
@@ -53,6 +60,7 @@ template<class T> struct CompletionRetentionTraits<T,std::void_t<
 
 template<class T> inline constexpr bool IsCompletionRetentionPolicy=CompletionRetentionTraits<T>::Valid;
 
+/// <summary>Canonical fixed policy metadata contributed to the Primitive contract fingerprint.</summary>
 struct CommandPolicyDescriptor final {
     std::uint8_t ExecutionKind=0;
     std::uint16_t LaneCount=0;
