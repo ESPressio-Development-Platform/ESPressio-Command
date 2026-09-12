@@ -149,8 +149,20 @@ int main(){
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     assert(owner.Callbacks==3);
 
+    // Thread/capability termination releases an outstanding requester expectation without invoking
+    // the application callback. Destination execution is independent and may still complete later.
+    platform.Pause();
+    auto quiesced=client.Execute<Request,&Owner::OnResult>(std::chrono::milliseconds(500),60);
+    assert(quiesced.Accepted());
+    assert(responses.LiveExpectations()==1);
     host.Accepting=false;
     responses.Quiesce({host.Now.load(),services});
     assert(responses.LiveExpectations()==0 && responses.ReadyCompletions()==0);
+    assert(owner.Callbacks==3);
+    platform.ResumeGate();
+    Eventually([&]{return owner.Handled.load()>=5;});
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    assert(owner.Callbacks==3);
+
     assert(runtime.Shutdown()==C::CommandRuntimeStatus::Success);
 }
