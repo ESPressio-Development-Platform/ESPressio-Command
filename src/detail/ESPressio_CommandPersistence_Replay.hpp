@@ -86,4 +86,66 @@ bool CommandExecutionLedger<T>::ResultFormatCompatible(
         return true;
 }
 
+template<class T>
+std::size_t CommandExecutionLedger<T>::StartupResponseCount() noexcept {
+    if constexpr(std::is_same_v<Response,NoCommandResponse>){
+        return 0;
+    }else{
+        std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
+        if(!_initialized) return 0;
+        std::size_t count=0;
+        for(const auto& origin:_origins){
+            if(!origin.Used) continue;
+            for(const auto& slot:origin.Slots){
+                if(slot.State==CommandLedgerSlotState::CompletedResultRetained ||
+                   slot.State==CommandLedgerSlotState::Indeterminate)
+                    ++count;
+            }
+        }
+        return count;
+    }
+}
+
+template<class T>
+bool CommandExecutionLedger<T>::StartupResponseAt(
+    std::size_t ordinal,
+    CommandLedgerStartupResponse& output) noexcept {
+    output={};
+    if constexpr(std::is_same_v<Response,NoCommandResponse>){
+        (void)ordinal;
+        return false;
+    }else{
+        std::lock_guard<System::Synchronization::Mutex> lock(_mutex);
+        if(!_initialized) return false;
+        for(const auto& origin:_origins){
+            if(!origin.Used) continue;
+            for(const auto& slot:origin.Slots){
+                if(slot.State!=CommandLedgerSlotState::CompletedResultRetained &&
+                   slot.State!=CommandLedgerSlotState::Indeterminate)
+                    continue;
+                if(ordinal--!=0) continue;
+
+                output.Key={T::TypeId,origin.Device,origin.CurrentRuntime,slot.Id};
+                if(slot.State==CommandLedgerSlotState::CompletedResultRetained){
+                    if constexpr(PersistentResponseResults){
+                        const auto result=ProbeResultLocked(output.Key);
+                        if(result.Status!=ResultProbeStatus::Valid) return false;
+                        output.Executor=result.Executor;
+                        output.Disposition=CommandResponseDisposition::Succeeded;
+                        output.ResultRetained=true;
+                    }else{
+                        return false;
+                    }
+                }else{
+                    output.Executor={_localDevice,slot.ExecutorRuntime};
+                    output.Disposition=CommandResponseDisposition::IndeterminateAfterRestart;
+                    output.ResultRetained=false;
+                }
+                return bool(output);
+            }
+        }
+        return false;
+    }
+}
+
 } // namespace ESPressio::Command
