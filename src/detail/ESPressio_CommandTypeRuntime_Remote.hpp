@@ -18,6 +18,15 @@ Serializable::BoundedSerializationResult DecodeCommandPayload(
         return Serializable::DeserializeBoundedJson(data,size,value);
     }
 }
+template<class Format>
+constexpr CommandPayloadFormat RemoteCommandPayloadFormat() noexcept {
+    if constexpr(std::is_same_v<Format,Serializable::DirectBinary>) return CommandPayloadFormat::DirectBinary;
+    else if constexpr(std::is_same_v<Format,Serializable::CBOR>) return CommandPayloadFormat::CBOR;
+    else {
+        static_assert(std::is_same_v<Format,Serializable::JSON>,"Unsupported Command P3 format");
+        return CommandPayloadFormat::JSON;
+    }
+}
 }
 
 template<class T>
@@ -30,6 +39,8 @@ CommandRemoteAdmissionResult CommandTypeRuntime<T>::TryAdmitRemoteRequest(
     static_assert(T::IsTransmissibleCommand && T::ValidateTier(),"Remote Command admission requires TransmissibleCommand");
     static_assert(Serializable::IsBoundedSerializable<T>,"Remote Command admission requires bounded request P3");
     static_assert(std::is_default_constructible_v<T>,"Remote Command bounded decode requires a default-constructible request Type");
+    constexpr auto format=Detail::RemoteCommandPayloadFormat<Format>();
+    if(!_ledger.ResultFormatCompatible(format)) return {CommandRemoteAdmissionStatus::Invalid};
     if(header.Key.TypeId!=T::TypeId || !header.Key.IsValid() ||
        !Timing::IsValidTimeReliability(header.OriginRequestTime.Reliability) ||
        size>Serializable::MaximumSerializedSize<T,Format>)
@@ -46,7 +57,66 @@ CommandRemoteAdmissionResult CommandTypeRuntime<T>::TryAdmitRemoteRequest(
         return {CommandRemoteAdmissionStatus::TemporarilyUnavailable};
 
     auto ledgerAdmission=_ledger.TryReserve(header.Key);
-    if(!ledgerAdmission) return {ledgerAdmission.Classification.Status};
+    if(!ledgerAdmission){
+        const auto classification=ledgerAdmission.Classification;
+        if constexpr(std::is_same_v<Response,NoCommandResponse>) return {classification.Status};
+        if(classification.Status==CommandRemoteAdmissionStatus::InProgress ||
+           classification.Status==CommandRemoteAdmissionStatus::LedgerCapacityUnavailable ||
+           classification.Status==CommandRemoteAdmissionStatus::TemporarilyUnavailable)
+            return {classification.Status};
+
+        ResponseHandle response{};
+        System::DeviceRuntimeIdentity executor{};
+        CommandResponseDisposition disposition=classification.Disposition;
+        bool retained=false;
+        if(classification.Status==CommandRemoteAdmissionStatus::DuplicateTerminal){
+            CommandLedgerReplay replay{};
+            if(!_ledger.TryReadReplay(header.Key,replay)) std::terminate();
+            executor=replay.Executor;
+            disposition=replay.Classification.Disposition;
+            retained=replay.ResultRetained;
+            response=retained
+                ? _responses.TryReserveRetainedReplay(header.Key,destination)
+                : _responses.TryReserveFrameworkReply(header.Key,destination);
+        }else if(classification.Status==CommandRemoteAdmissionStatus::StaleOriginRuntime ||
+                 classification.Status==CommandRemoteAdmissionStatus::ExecutionHistoryExpired){
+            const auto* local=System::RuntimeIdentity::TryGet();
+            if(!local) std::terminate();
+            executor=*local;
+            response=_responses.TryReserveFrameworkReply(header.Key,destination);
+        }else{
+            return {classification.Status};
+        }
+        if(!response) return {CommandRemoteAdmissionStatus::TemporarilyUnavailable};
+
+        bool constructed=false;
+        if(retained){
+            if(disposition!=CommandResponseDisposition::Succeeded) std::terminate();
+            auto* storage=_responses.Storage(response);
+            if(!storage) std::terminate();
+            auto* value=new(storage) Response{};
+            if(!_ledger.LoadRetainedResult(header.Key,*value)){
+                value->~Response();
+                _responses.Release(response);
+                std::terminate();
+            }
+            constructed=true;
+        }
+        if(!_responses.Publish(response,disposition,executor,constructed)){
+            if(constructed)
+                std::launder(reinterpret_cast<Response*>(_responses.Storage(response)))->~Response();
+            _responses.Release(response);
+            std::terminate();
+        }
+        const auto work=_responses.RouteWork(response);
+        if(!work || !_responseRouter) std::terminate();
+        const auto routed=_responseRouter.Submit(work);
+        if(routed!=Task::TaskExecutionStatus::Success){
+            work.Drop();
+            std::terminate();
+        }
+        return {classification.Status};
+    }
 
     auto requestReservation=_pool.TryReserve();
     if(!requestReservation) return {CommandRemoteAdmissionStatus::TemporarilyUnavailable};
@@ -106,6 +176,8 @@ CommandRemoteAdmissionResult CommandTypeRuntime<T>::TryAdmitRemoteResponse(
     static_assert(!std::is_same_v<Response,NoCommandResponse>,"NoCommandResponse has no response ingress path");
     static_assert(Serializable::IsBoundedSerializable<Response>,"Remote response admission requires bounded response P3");
     static_assert(std::is_default_constructible_v<Response>,"Remote response bounded decode requires a default-constructible response Type");
+    constexpr auto format=Detail::RemoteCommandPayloadFormat<Format>();
+    if(!_ledger.ResultFormatCompatible(format)) return {CommandRemoteAdmissionStatus::Invalid};
     if(header.Key.TypeId!=T::TypeId || !header.Key.IsValid() || !header.Executor ||
        !IsValidCommandResponseDisposition(header.Disposition))
         return {CommandRemoteAdmissionStatus::Invalid};

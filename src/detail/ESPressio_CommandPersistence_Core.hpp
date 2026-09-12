@@ -59,6 +59,16 @@ struct CommandLedgerClassification final {
     CommandResponseDisposition Disposition=CommandResponseDisposition::Succeeded;
 };
 
+/// <summary>Exact replay facts for one terminal execution already owned by this executor device.</summary>
+struct CommandLedgerReplay final {
+    CommandLedgerClassification Classification{};
+    System::DeviceRuntimeIdentity Executor{};
+    bool ResultRetained=false;
+    constexpr explicit operator bool() const noexcept {
+        return Classification.Status==CommandRemoteAdmissionStatus::DuplicateTerminal && bool(Executor);
+    }
+};
+
 template<class T>
 class CommandExecutionLedger final {
     static_assert(T::IsTransmissibleCommand && T::ValidateTier());
@@ -78,6 +88,12 @@ class CommandExecutionLedger final {
     static_assert(
         !std::is_same_v<Response,NoCommandResponse> || !ResultRetention::Persistent,
         "NoCommandResponse cannot declare PersistentResults because it owns no result payload");
+    static_assert(
+        !PersistentResponseResults || std::is_default_constructible_v<Response>,
+        "Persistent Command result replay requires a default-constructible response Type");
+    static_assert(
+        !PersistentResponseResults || std::is_nothrow_move_assignable_v<Response>,
+        "Persistent Command result replay requires nonthrowing response publication");
 
     struct Slot final {
         CommandId Id{};
@@ -256,6 +272,9 @@ public:
     void RollbackInitialization() noexcept;
     Admission TryReserve(const CommandExecutionKey&) noexcept;
     CommandLedgerClassification Classify(const CommandExecutionKey&) noexcept;
+    bool TryReadReplay(const CommandExecutionKey&,CommandLedgerReplay&) noexcept;
+    bool LoadRetainedResult(const CommandExecutionKey&,Response&) noexcept;
+    bool ResultFormatCompatible(CommandPayloadFormat) const noexcept;
     bool HasRecoveredStarted() const noexcept;
     bool ReservePersistentResult(const CommandExecutionKey&) noexcept;
     void AbandonPersistentResult(const CommandExecutionKey&) noexcept;
@@ -299,6 +318,9 @@ public:
         return CommandRuntimeStatus::Success;
     }
     void RollbackInitialization() noexcept {}
+    bool TryReadReplay(const CommandExecutionKey&,CommandLedgerReplay&) noexcept { return false; }
+    bool LoadRetainedResult(const CommandExecutionKey&,typename T::ResponseType&) noexcept { return false; }
+    bool ResultFormatCompatible(CommandPayloadFormat format) const noexcept { return IsValidCommandPayloadFormat(format); }
     bool ReservePersistentResult(const CommandExecutionKey&) noexcept {
         return true;
     }
@@ -339,6 +361,15 @@ public:
     }
     CommandLedgerClassification Classify(const CommandExecutionKey& key) noexcept {
         return _ledger.Classify(key);
+    }
+    bool TryReadReplay(const CommandExecutionKey& key,CommandLedgerReplay& replay) noexcept {
+        return _ledger.TryReadReplay(key,replay);
+    }
+    bool LoadRetainedResult(const CommandExecutionKey& key,typename T::ResponseType& response) noexcept {
+        return _ledger.LoadRetainedResult(key,response);
+    }
+    bool ResultFormatCompatible(CommandPayloadFormat format) const noexcept {
+        return _ledger.ResultFormatCompatible(format);
     }
     bool ReservePersistentResult(const CommandExecutionKey& key) noexcept {
         return _ledger.ReservePersistentResult(key);

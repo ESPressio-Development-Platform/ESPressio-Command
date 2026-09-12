@@ -18,7 +18,7 @@ template<class TResponse,std::size_t N> class CommandResponseSlotPool final {
 public:
     struct Handle final { std::uint16_t Index=UINT16_MAX; constexpr explicit operator bool() const noexcept { return Index!=UINT16_MAX; } };
 private:
-    enum class ReservationRole : std::uint8_t { None,ExecutorResponse,RemoteRequester,RetainedReplay };
+    enum class ReservationRole : std::uint8_t { None,ExecutorResponse,RemoteRequester,FrameworkReply,RetainedReplay };
     struct Slot final {
         CommandResponseSlotPool* Owner=nullptr;
         std::uint16_t Index=UINT16_MAX;
@@ -101,16 +101,15 @@ public:
         if(_retentionOwner || _reserveRetention || _abandonRetention || _persistRetention || _retireRetention) std::terminate();
         _retentionOwner=owner;_reserveRetention=reserve;_abandonRetention=abandon;_persistRetention=persist;_retireRetention=retire;
     }
-    /// Executor-side response reservation. Persistent Types reserve result-retention budget here.
     Handle TryReserve(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
         return TryReserveInternal(key,destination,ReservationRole::ExecutorResponse,_reserveRetention!=nullptr,false);
     }
-    /// Requester-side reservation used by ExecuteTo before outbound transport admission.
-    /// No executor-side result retention is reserved or retired on this node.
     Handle TryReserveRemoteRequester(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
         return TryReserveInternal(key,destination,ReservationRole::RemoteRequester,false,false);
     }
-    /// Duplicate/recovery replay of an already-retained persistent result. Successful destination admission retires it.
+    Handle TryReserveFrameworkReply(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
+        return TryReserveInternal(key,destination,ReservationRole::FrameworkReply,false,false);
+    }
     Handle TryReserveRetainedReplay(const CommandExecutionKey& key,Detail::CommandResponseDestination destination) noexcept {
         return TryReserveInternal(key,destination,ReservationRole::RetainedReplay,false,true);
     }
@@ -189,7 +188,7 @@ public:
             auto& slot=_slots[handle.Index];
             if(slot.State==DestinationResponseSlotState::Free) return;
             abandonRetention=slot.RetentionReserved;key=slot.Key;
-            if(slot.Constructed){std::launder(reinterpret_cast<TResponse*>(slot.Storage))->~TResponse();slot.Constructed=false;}
+            if(slot.Constructed){std::launder(reinterpret_cast<TResponse*>(slot.Storage))->~TResponse>();slot.Constructed=false;}
             auto* owner=slot.Owner;const auto index=slot.Index;slot=Slot{};slot.Owner=owner;slot.Index=index;released=true;
         }
         if(abandonRetention && _abandonRetention) _abandonRetention(_retentionOwner,key);
